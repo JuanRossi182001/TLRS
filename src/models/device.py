@@ -1,0 +1,95 @@
+
+from db.config.config import base
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean
+from sqlalchemy import Enum as SqlAlchemyEnum
+from sqlalchemy.orm import Mapped,relationship
+from enum import Enum
+from datetime import datetime
+
+
+class DeviceState(Enum):
+    ON = "ON"
+    OFF = "OFF"
+    
+class DeviceCommunicationProtocol(Enum):
+    HTTP = "HTTP"
+    MQTT = "MQTT"
+
+
+class CredentialStatus(Enum):
+    ACTIVE = "ACTIVE"
+    REVOKED = "REVOKED"
+
+
+
+class Device(base):
+    """
+    Represents the physical tracking device.
+    Example: ESP32 + GPS module mounted on an asset.
+    """
+
+    __tablename__ = "devices"
+
+    id_device = Column(Integer, primary_key=True)
+    serial = Column(String, unique=True, nullable=False)
+    name = Column(String, nullable=False)
+    type = Column(String, nullable=False)
+
+    state: Mapped[DeviceState] = Column(
+        SqlAlchemyEnum(DeviceState),
+        default=DeviceState.OFF,
+        nullable=False,
+    )
+
+    communication_protocol: Mapped[DeviceCommunicationProtocol] = Column(
+        SqlAlchemyEnum(DeviceCommunicationProtocol),
+        default=DeviceCommunicationProtocol.HTTP,
+        nullable=False,
+    )
+
+    client_id = Column(Integer, ForeignKey("clients.id_client"), nullable=True)
+    asset_id = Column(Integer, ForeignKey("assets.id_asset"), nullable=True)
+
+    active = Column(Boolean, default=False, nullable=False)
+
+    client = relationship("Client", back_populates="devices")
+    asset = relationship("Asset", back_populates="devices")
+    device_credentials = relationship(
+        "DeviceCredential",
+        back_populates="device",
+        cascade="all, delete-orphan",
+    )
+    telemetry_messages = relationship(
+        "TelemetryMessage",
+        back_populates="device",
+        cascade="all, delete-orphan",
+    )
+    locations = relationship(
+        "Location",
+        back_populates="device",
+        cascade="all, delete-orphan",
+    )
+
+
+class DeviceCredential(base):
+    """
+    Represents device authentication material.
+    """
+
+    __tablename__ = "device_credentials"
+
+    id = Column(Integer, primary_key=True)
+    device_id = Column(Integer, ForeignKey("devices.id_device"), nullable=False)
+
+    secret = Column(String, nullable=False)
+
+    status: Mapped[CredentialStatus] = Column(
+        SqlAlchemyEnum(CredentialStatus),
+        default=CredentialStatus.ACTIVE,
+        nullable=False,
+    )
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+
+    device = relationship("Device", back_populates="device_credentials")

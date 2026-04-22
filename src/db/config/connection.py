@@ -1,4 +1,4 @@
-from db.config.config import sessionlocal
+from src.db.config.config import sessionlocal
 
 def get_db():
     try:

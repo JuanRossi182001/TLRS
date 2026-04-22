@@ -6,12 +6,14 @@ from sqlalchemy.orm import Mapped,relationship
 
 class Client(base):
     """
-    Represents the client of the service
-    
+    Represents the customer or company that owns assets/devices.
     """
 
     __tablename__ = "clients"
-    
+
     id_client = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     email = Column(String, nullable=False)
+
+    devices = relationship("Device", back_populates="client")
+    assets = relationship("Asset", back_populates="client")
