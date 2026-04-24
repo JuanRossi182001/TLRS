@@ -1,4 +1,4 @@
-from db.config.config import base
+from src.db.config.config import base
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime,Float
 from datetime import datetime
 from enum import Enum

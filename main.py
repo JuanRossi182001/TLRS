@@ -1,7 +1,10 @@
 from fastapi import FastAPI
 
-app = FastAPI()
+import src.models  # noqa: F401 - registers SQLAlchemy models before mapper configuration
+from src.routers import telemetry
 
+app = FastAPI()
+app.include_router(telemetry.router)
 @app.get("/")
 async def root():
     return {"message": "Hola Bienvenido a TLRS"}

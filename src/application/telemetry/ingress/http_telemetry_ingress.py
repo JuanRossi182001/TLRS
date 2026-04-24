@@ -43,6 +43,7 @@ class HttpTelemetryIngress(TelemetryIngress):
 
         authorization = headers.get("authorization")
         x_device_serial = headers.get("x-device-serial")
+        x_api_key = headers.get("x-api-key")
         x_signature = headers.get("x-signature")
         x_timestamp = headers.get("x-timestamp")
 
@@ -50,12 +51,15 @@ class HttpTelemetryIngress(TelemetryIngress):
             auth_metadata["authorization"] = authorization
 
         if x_device_serial:
-            auth_metadata["x_device_serial"] = x_device_serial
+            auth_metadata["x-device-serial"] = x_device_serial
+            
+        if x_api_key:
+            auth_metadata["x-api-key"] = x_api_key    
 
         if x_signature:
-            auth_metadata["x_signature"] = x_signature
+            auth_metadata["x-signature"] = x_signature
 
         if x_timestamp:
-            auth_metadata["x_timestamp"] = x_timestamp
+            auth_metadata["x-timestamp"] = x_timestamp
 
         return auth_metadata

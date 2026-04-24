@@ -1,5 +1,5 @@
-from db.config.config import base
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text
+from src.db.config.config import base
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text, Boolean
 from sqlalchemy import Enum as SqlAlchemyEnum
 from datetime import datetime
 from sqlalchemy.orm import Mapped,relationship
@@ -23,6 +23,9 @@ class TelemetryMessage(base):
         default=DeviceCommunicationProtocol.HTTP,
         nullable=False,
     )
+    
+    processed = Column(Boolean, default=False, nullable=False)
+    error_message = Column(String, nullable=True)
 
     source_ip = Column(String, nullable=True)
 

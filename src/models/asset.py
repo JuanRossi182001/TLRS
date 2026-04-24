@@ -1,4 +1,4 @@
-from db.config.config import base
+from src.db.config.config import base
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
 from sqlalchemy import Enum as SqlAlchemyEnum
 from enum import Enum

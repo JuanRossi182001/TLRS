@@ -1,5 +1,5 @@
 
-from db.config.config import base
+from src.db.config.config import base
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean
 from sqlalchemy import Enum as SqlAlchemyEnum
 from sqlalchemy.orm import Mapped,relationship
