@@ -56,10 +56,9 @@ class TelemetryIngestionService:
 
         location = self._store_location(device.id_device, normalized_telemetry, envelope)
         telemetry_message.processed = True
+        
         self.db.add(telemetry_message)
-
-        self._update_device_state(device)
-
+        self._update_device_state_last_seen(device, envelope)
         self.db.commit()
 
         return TelemetryIngestionResult(
@@ -106,5 +105,6 @@ class TelemetryIngestionService:
         self.db.flush()
         return location
 
-    def _update_device_state(self, device) -> None:
+    def _update_device_state_last_seen(self, device, envelope: IncomingTelemetryEnvelope) -> None:
         device.state = DeviceState.ON
+        device.last_seen_at = envelope.received_at

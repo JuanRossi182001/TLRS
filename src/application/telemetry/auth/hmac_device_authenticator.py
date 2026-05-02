@@ -1,3 +1,4 @@
+import json 
 import hmac
 import hashlib
 from datetime import datetime, timezone
@@ -7,7 +8,7 @@ from sqlalchemy.orm import Session
 from src.application.telemetry.authentication_result import AuthenticationResult
 from src.application.telemetry.incoming_telemetry_envelope import IncomingTelemetryEnvelope
 from src.application.telemetry.interfaces.device_authenticator import DeviceAuthenticator
-from src.models.device import Device, DeviceCredential, CredentialStatus
+from src.models.device import Device, DeviceCredential, CredentialStatus, DeviceCommunicationProtocol
 
 
 
@@ -26,6 +27,16 @@ class HmacDeviceAuthenticator(DeviceAuthenticator):
         envelope: IncomingTelemetryEnvelope,
     ) -> AuthenticationResult:
 
+        print("[AUTH] auth_metadata:", envelope.auth_metadata)
+
+        serial = envelope.auth_metadata.get("x_device_serial")
+        signature = envelope.auth_metadata.get("x_signature")
+        timestamp = envelope.auth_metadata.get("x_timestamp")
+
+        print("[AUTH] serial:", serial)
+        print("[AUTH] signature:", signature)
+        print("[AUTH] timestamp:", timestamp)
+        
         serial = envelope.auth_metadata.get("x-device-serial")
         signature = envelope.auth_metadata.get("x-signature")
         timestamp = envelope.auth_metadata.get("x-timestamp")
@@ -68,10 +79,11 @@ class HmacDeviceAuthenticator(DeviceAuthenticator):
 
         # --- Validar firma ---
         if not self._is_signature_valid(
-            envelope.raw_payload,
-            timestamp,
-            credential.secret,
-            signature,
+            payload=envelope.raw_payload,
+            timestamp=timestamp,
+            secret=credential.secret,
+            received_signature=signature,
+            protocol=envelope.transport_protocol
         ):
             return self._fail("Invalid signature")
 
@@ -81,17 +93,22 @@ class HmacDeviceAuthenticator(DeviceAuthenticator):
         )
 
     def _is_signature_valid(
-        self,
-        payload: str,
-        timestamp: str,
-        secret: str,
-        received_signature: str,
+    self,
+    payload: str,
+    timestamp: str,
+    secret: str,
+    received_signature: str,
+    protocol=None,
     ) -> bool:
+        message_payload = payload
 
-        message = f"{payload}{timestamp}".encode()
+        if protocol == DeviceCommunicationProtocol.MQTT:
+            message_payload = self._remove_signature_from_payload(payload)
+
+        message = f"{message_payload}{timestamp}".encode("utf-8")
 
         expected_signature = hmac.new(
-            key=secret.encode(),
+            key=secret.encode("utf-8"),
             msg=message,
             digestmod=hashlib.sha256,
         ).hexdigest()
@@ -113,4 +130,23 @@ class HmacDeviceAuthenticator(DeviceAuthenticator):
         return AuthenticationResult(
             is_authenticated=False,
             failure_reason=reason,
+        )
+        
+        
+    def _remove_signature_from_payload(self, payload: str) -> str:
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            return payload
+
+        if not isinstance(data, dict):
+            return payload
+
+        data.pop("signature", None)
+
+        return json.dumps(
+            data,
+            separators=(",", ":"),
+            sort_keys=True,
+            ensure_ascii=False,
         )

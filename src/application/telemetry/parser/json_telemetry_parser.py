@@ -55,5 +55,5 @@ class JsonTelemetryParser(TelemetryParser):
             return None
 
     def _extract_extra(self, data: dict) -> dict:
-        known_keys = {"lat", "lng", "timestamp", "altitude", "accuracy"}
+        known_keys = {"lat", "lng", "timestamp", "altitude", "accuracy", "signature"}
         return {k: v for k, v in data.items() if k not in known_keys}

@@ -34,7 +34,8 @@ class Device(base):
     serial = Column(String, unique=True, nullable=False)
     name = Column(String, nullable=False)
     type = Column(String, nullable=False)
-
+    last_seen_at = Column(DateTime, nullable=True)
+    
     state: Mapped[DeviceState] = Column(
         SqlAlchemyEnum(DeviceState),
         default=DeviceState.OFF,
