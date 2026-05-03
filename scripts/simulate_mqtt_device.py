@@ -12,7 +12,7 @@ BROKER_HOST = "localhost"
 BROKER_PORT = 1883
 
 MQTT_USERNAME = "device_aaa_001"
-MQTT_PASSWORD = "device123"
+MQTT_PASSWORD = "O850J4S87H1mhy0j"
 
 DEVICE_SERIAL = "AAA-001"
 TOPIC = f"gps/devices/{DEVICE_SERIAL}/location"

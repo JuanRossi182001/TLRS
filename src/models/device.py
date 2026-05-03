@@ -84,6 +84,14 @@ class DeviceCredential(base):
     device_id = Column(Integer, ForeignKey("devices.id_device"), nullable=False)
 
     secret = Column(String, nullable=False)
+    
+    mqtt_username = Column(String, nullable=True, unique=True)
+    mqtt_password = Column(String, nullable=True)
+
+    location_topic = Column(String, nullable=True)
+    status_topic = Column(String, nullable=True)
+    heartbeat_topic = Column(String, nullable=True)
+    
     deleted = Column(String(1), default="N", nullable=False)
 
     status: Mapped[CredentialStatus] = Column(

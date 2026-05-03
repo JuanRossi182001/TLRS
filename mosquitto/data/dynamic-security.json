@@ -1,0 +1,128 @@
+{
+	"changeIndex":	18,
+	"defaultACLAccess":	{
+		"publishClientSend":	false,
+		"publishClientReceive":	true,
+		"subscribe":	false,
+		"unsubscribe":	true
+	},
+	"clients":	[{
+			"username":	"admin_tlrs",
+			"textname":	"Dynsec admin user",
+			"roles":	[{
+					"rolename":	"admin"
+				}],
+			"encoded_password":	"$7$1000$QRTEWYW96x33MhMkKSn+s8ikXIbXk5kNMJ0j2qkqZR/6u4QO62FCPq7oKBeRrNxDge0k4/dC9WzwRb7NlCPSjg==$J5fjyLT2tSda7BeMFT+zB70RuJ/VkboIGuNGNMJPwbp+nksxYH8zc93z73c7VSJfxFvM4EKjXtyZ0Q4YqGoJLg=="
+		}, {
+			"username":	"device_aaa_001",
+			"roles":	[{
+					"rolename":	"role_device_aaa_001"
+				}],
+			"encoded_password":	"$7$1000$m1ALLiY2qspl7BS373Al6rOwZEGr+tBYdPGPDmEiILgqrxHUh/wOVthw3b/8D/Q1HR5El3FX10Gq3aCyWvxD8Q==$xXNME0eVph1tdUgNxRWf28ko5JhE6MHfUkBxmd8X1WQV/d7fyZr3of4x/w7uY/QbNXJhcuCf82XQak1Js4oTQQ=="
+		}, {
+			"username":	"gps_worker",
+			"roles":	[{
+					"rolename":	"role_gps_worker"
+				}],
+			"encoded_password":	"$7$1000$XcCKrQFO079h3R1JDQMsp8hrEujcHWtH0+Ehd2siuraJZQWV7zgoPdg91xEilhusMpeYcXvA6QKwGFQbFpHtvQ==$6NVaRJXpOJSc5AjGqMYOn4TTDGaM0pua4OhQNCy7jPniv0GNLjupD3llklzDbuLvrjyD1ykUMTtMSGdwkO5HUw=="
+		}],
+	"groups":	[],
+	"roles":	[{
+			"rolename":	"admin",
+			"allowwildcardsubs":	true,
+			"acls":	[{
+					"acltype":	"publishClientSend",
+					"topic":	"$CONTROL/dynamic-security/#",
+					"priority":	0,
+					"allow":	true
+				}, {
+					"acltype":	"publishClientReceive",
+					"topic":	"$CONTROL/dynamic-security/#",
+					"priority":	0,
+					"allow":	true
+				}, {
+					"acltype":	"publishClientReceive",
+					"topic":	"$SYS/#",
+					"priority":	0,
+					"allow":	true
+				}, {
+					"acltype":	"publishClientReceive",
+					"topic":	"#",
+					"priority":	0,
+					"allow":	true
+				}, {
+					"acltype":	"subscribePattern",
+					"topic":	"$CONTROL/dynamic-security/#",
+					"priority":	0,
+					"allow":	true
+				}, {
+					"acltype":	"subscribePattern",
+					"topic":	"$SYS/#",
+					"priority":	0,
+					"allow":	true
+				}, {
+					"acltype":	"subscribePattern",
+					"topic":	"#",
+					"priority":	0,
+					"allow":	true
+				}, {
+					"acltype":	"unsubscribePattern",
+					"topic":	"#",
+					"priority":	0,
+					"allow":	true
+				}]
+		}, {
+			"rolename":	"role_device_aaa_001",
+			"allowwildcardsubs":	true,
+			"acls":	[{
+					"acltype":	"publishClientSend",
+					"topic":	"gps/devices/AAA-001/location",
+					"priority":	0,
+					"allow":	true
+				}, {
+					"acltype":	"publishClientSend",
+					"topic":	"gps/devices/AAA-001/status",
+					"priority":	0,
+					"allow":	true
+				}, {
+					"acltype":	"publishClientSend",
+					"topic":	"gps/devices/AAA-001/heartbeat",
+					"priority":	0,
+					"allow":	true
+				}]
+		}, {
+			"rolename":	"role_gps_worker",
+			"allowwildcardsubs":	true,
+			"acls":	[{
+					"acltype":	"publishClientReceive",
+					"topic":	"gps/devices/+/location",
+					"priority":	0,
+					"allow":	true
+				}, {
+					"acltype":	"publishClientReceive",
+					"topic":	"gps/devices/+/status",
+					"priority":	0,
+					"allow":	true
+				}, {
+					"acltype":	"publishClientReceive",
+					"topic":	"gps/devices/+/heartbeat",
+					"priority":	0,
+					"allow":	true
+				}, {
+					"acltype":	"subscribePattern",
+					"topic":	"gps/devices/+/location",
+					"priority":	0,
+					"allow":	true
+				}, {
+					"acltype":	"subscribePattern",
+					"topic":	"gps/devices/+/status",
+					"priority":	0,
+					"allow":	true
+				}, {
+					"acltype":	"subscribePattern",
+					"topic":	"gps/devices/+/heartbeat",
+					"priority":	0,
+					"allow":	true
+				}]
+		}]
+}

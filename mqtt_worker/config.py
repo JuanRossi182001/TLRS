@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     mqtt_port: int = 1883
 
     mqtt_username: str = "gps_worker"
-    mqtt_password: str = "workerpass123"
+    mqtt_password: str = "password"
 
     mqtt_location_topic: str = "gps/devices/+/location"
 
