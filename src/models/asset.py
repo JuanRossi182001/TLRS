@@ -20,6 +20,7 @@ class Asset(base):
     id_asset = Column(Integer, primary_key=True)
     asset_type = Column(String, nullable=False)
     serial = Column(String, unique=True, nullable=False)
+    deleted = Column(String(1), default="N", nullable=False)
 
     client_id = Column(Integer, ForeignKey("clients.id_client"), nullable=True)
 

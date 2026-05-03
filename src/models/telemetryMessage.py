@@ -28,5 +28,6 @@ class TelemetryMessage(base):
     error_message = Column(String, nullable=True)
 
     source_ip = Column(String, nullable=True)
+    deleted = Column(String(1), default="N", nullable=False)
 
     device = relationship("Device", back_populates="telemetry_messages")

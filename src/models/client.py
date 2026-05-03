@@ -14,6 +14,7 @@ class Client(base):
     id_client = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     email = Column(String, nullable=False)
+    deleted = Column(String(1), default="N", nullable=False)
 
     devices = relationship("Device", back_populates="client")
     assets = relationship("Asset", back_populates="client")

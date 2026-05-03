@@ -28,14 +28,6 @@ class HmacDeviceAuthenticator(DeviceAuthenticator):
     ) -> AuthenticationResult:
 
         print("[AUTH] auth_metadata:", envelope.auth_metadata)
-
-        serial = envelope.auth_metadata.get("x_device_serial")
-        signature = envelope.auth_metadata.get("x_signature")
-        timestamp = envelope.auth_metadata.get("x_timestamp")
-
-        print("[AUTH] serial:", serial)
-        print("[AUTH] signature:", signature)
-        print("[AUTH] timestamp:", timestamp)
         
         serial = envelope.auth_metadata.get("x-device-serial")
         signature = envelope.auth_metadata.get("x-signature")

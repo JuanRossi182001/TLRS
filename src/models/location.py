@@ -24,5 +24,6 @@ class Location(base):
 
     # Placeholder until you move to PostGIS / geoalchemy
     geometry = Column(String, nullable=True)
+    deleted = Column(String(1), default="N", nullable=False)
 
     device = relationship("Device", back_populates="locations")

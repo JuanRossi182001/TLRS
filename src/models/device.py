@@ -35,6 +35,7 @@ class Device(base):
     name = Column(String, nullable=False)
     type = Column(String, nullable=False)
     last_seen_at = Column(DateTime, nullable=True)
+    deleted = Column(String(1), default="N", nullable=False)
     
     state: Mapped[DeviceState] = Column(
         SqlAlchemyEnum(DeviceState),
@@ -83,6 +84,7 @@ class DeviceCredential(base):
     device_id = Column(Integer, ForeignKey("devices.id_device"), nullable=False)
 
     secret = Column(String, nullable=False)
+    deleted = Column(String(1), default="N", nullable=False)
 
     status: Mapped[CredentialStatus] = Column(
         SqlAlchemyEnum(CredentialStatus),
