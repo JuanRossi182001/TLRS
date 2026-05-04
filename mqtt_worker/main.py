@@ -4,7 +4,7 @@ from typing import Any
 
 from paho.mqtt.client import Client, MQTTMessage
 
-from mqtt_worker.config import settings
+from src.settings import settings
 
 from src.application.telemetry.ingress.mqtt_telemetry_ingress import MqttTelemetryIngress
 from src.application.telemetry.auth.hmac_device_authenticator import HmacDeviceAuthenticator

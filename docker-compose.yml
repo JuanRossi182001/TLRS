@@ -15,12 +15,15 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: dockerfile
     container_name: gps_backend
     ports:
       - "8000:8000"
     env_file:
       - .env
+    secrets:
+      - db_connection_url
+      - db_schema_name
     volumes:
       - .:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
@@ -29,7 +32,7 @@ services:
   mqtt-worker:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: dockerfile
     container_name: gps_mqtt_worker
     env_file:
       - .env
@@ -39,3 +42,9 @@ services:
       - .:/app
     command: python -m mqtt_worker.main
     restart: unless-stopped
+
+secrets:
+  db_connection_url:
+    environment: DATABASE_URL
+  db_schema_name:
+    environment: DB_SCHEMA_NAME
