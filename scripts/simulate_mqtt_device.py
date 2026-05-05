@@ -1,5 +1,6 @@
 import json
 import time
+import ssl
 import hmac
 import hashlib
 from datetime import datetime
@@ -8,9 +9,9 @@ from typing import Any
 from paho.mqtt.client import Client
 
 
-BROKER_HOST = "localhost"
-BROKER_PORT = 1883
-
+BROKER_HOST = "fdef4040.ala.us-east-1.emqxsl.com"
+BROKER_PORT = 8883
+MQTT_TLS_ENABLED = True
 MQTT_USERNAME = "device_aaa_001"
 MQTT_PASSWORD = "O850J4S87H1mhy0j"
 
@@ -92,6 +93,12 @@ def main():
     print("[DEVICE SIM] Starting simulated device")
     print(f"[DEVICE SIM] Broker: {BROKER_HOST}:{BROKER_PORT}")
     print(f"[DEVICE SIM] Topic: {TOPIC}")
+
+    client.tls_set(
+    cert_reqs=ssl.CERT_REQUIRED,
+    tls_version=ssl.PROTOCOL_TLS_CLIENT,
+)
+    client.tls_insecure_set(False)
 
     client.connect(
         host=BROKER_HOST,

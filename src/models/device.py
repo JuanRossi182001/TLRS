@@ -15,7 +15,9 @@ class DeviceCommunicationProtocol(Enum):
     HTTP = "HTTP"
     MQTT = "MQTT"
 
-
+class MqttProvider(Enum):
+    EMQX_CLOUD = "EMQX_CLOUD"
+    MOSQUITTO = "MOSQUITTO"
 class CredentialStatus(Enum):
     ACTIVE = "ACTIVE"
     REVOKED = "REVOKED"
@@ -86,7 +88,9 @@ class DeviceCredential(base):
     secret = Column(String, nullable=False)
     
     mqtt_username = Column(String, nullable=True, unique=True)
-    mqtt_password = Column(String, nullable=True)
+    mqtt_password_hash = Column(String, nullable=True, unique=True)
+    mqtt_password_encrypted = Column(String, nullable=True, unique=True)
+    mqtt_provider: Mapped[MqttProvider] = Column(SqlAlchemyEnum(MqttProvider),default=MqttProvider.EMQX_CLOUD, nullable=True)
 
     location_topic = Column(String, nullable=True)
     status_topic = Column(String, nullable=True)

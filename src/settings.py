@@ -77,13 +77,14 @@ class Settings(BaseSettings):
     database_url: str | None = None
     db_schema_name: str = "public"
 
-    mqtt_host: str = "localhost"
-    mqtt_port: int = 1883
+    mqtt_host: str 
+    mqtt_port: int
 
     mqtt_username: str = "gps_worker"
     mqtt_password: str = "password"
 
     mqtt_location_topic: str = "gps/devices/+/location"
+    mqtt_tls_enabled: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",

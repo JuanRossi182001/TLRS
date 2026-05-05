@@ -1,17 +1,4 @@
 services:
-  mosquitto:
-    image: eclipse-mosquitto:2
-    container_name: gps_mosquitto
-    ports:
-      - "1883:1883"
-    volumes:
-      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ./mosquitto/auth/passwordfile:/mosquitto/auth/passwordfile:ro
-      - ./mosquitto/auth/aclfile:/mosquitto/auth/aclfile:ro
-      - ./mosquitto/data:/mosquitto/data
-      - ./mosquitto/log:/mosquitto/log
-    restart: unless-stopped
-
   backend:
     build:
       context: .
@@ -36,8 +23,9 @@ services:
     container_name: gps_mqtt_worker
     env_file:
       - .env
-    depends_on:
-      - mosquitto
+    secrets:
+      - db_connection_url
+      - db_schema_name
     volumes:
       - .:/app
     command: python -m mqtt_worker.main

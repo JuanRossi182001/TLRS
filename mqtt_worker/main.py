@@ -1,4 +1,5 @@
 import signal
+import ssl
 import sys
 from typing import Any
 
@@ -21,6 +22,10 @@ def on_connect(
     properties=None,
 ):
     print(f"[MQTT] Connected to broker. Reason code: {reason_code}")
+
+    if int(reason_code) != 0:
+        print(f"[MQTT] Connection rejected. Reason code: {reason_code}")
+        return
 
     client.subscribe(settings.mqtt_location_topic, qos=1)
 
@@ -55,16 +60,15 @@ def on_message(client: Client, userdata: Any, message: MQTTMessage):
     try:
         ingress = MqttTelemetryIngress()
 
-        
         envelope = ingress.build_envelope(
             raw_payload=raw_payload,
             topic=message.topic,
             qos=message.qos,
             retain=message.retain,
             mqtt_client_id=None,
-            mqtt_username=None,
+            mqtt_username=settings.mqtt_username,
         )
-        
+
         print(f"[WORKER] Envelope auth_metadata: {envelope.auth_metadata}")
         print(f"[WORKER] Envelope topic: {envelope.topic}")
 
@@ -102,6 +106,20 @@ def shutdown(client: Client):
     sys.exit(0)
 
 
+def configure_tls(client: Client) -> None:
+    if not settings.mqtt_tls_enabled:
+        return
+
+    print("[MQTT] TLS enabled")
+
+    client.tls_set(
+        cert_reqs=ssl.CERT_REQUIRED,
+        tls_version=ssl.PROTOCOL_TLS_CLIENT,
+    )
+
+    client.tls_insecure_set(False)
+
+
 def main():
     client = Client(client_id="gps-mqtt-worker")
 
@@ -109,6 +127,8 @@ def main():
         username=settings.mqtt_username,
         password=settings.mqtt_password,
     )
+
+    configure_tls(client)
 
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
@@ -118,6 +138,7 @@ def main():
     print(f"[WORKER] MQTT host: {settings.mqtt_host}")
     print(f"[WORKER] MQTT port: {settings.mqtt_port}")
     print(f"[WORKER] MQTT user: {settings.mqtt_username}")
+    print(f"[WORKER] MQTT TLS: {settings.mqtt_tls_enabled}")
 
     client.connect(
         host=settings.mqtt_host,
