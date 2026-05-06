@@ -12,8 +12,8 @@ from paho.mqtt.client import Client
 BROKER_HOST = "fdef4040.ala.us-east-1.emqxsl.com"
 BROKER_PORT = 8883
 MQTT_TLS_ENABLED = True
-MQTT_USERNAME = "device_aaa_001"
-MQTT_PASSWORD = "O850J4S87H1mhy0j"
+MQTT_USERNAME = "device_AAA-001"
+MQTT_PASSWORD = "Xxxxxxxxxx"
 
 DEVICE_SERIAL = "AAA-001"
 TOPIC = f"gps/devices/{DEVICE_SERIAL}/location"
