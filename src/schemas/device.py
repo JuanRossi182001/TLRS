@@ -20,8 +20,6 @@ class DeviceBase(BaseModel):
     active: bool = False
 
 
-class DeviceCreate(DeviceBase):
-    pass
 
 
 class DeviceUpdate(BaseModel):
@@ -67,3 +65,42 @@ class DeviceCredentialRead(DeviceCredentialBase):
 
 class DeviceCredentialReadWithSecret(DeviceCredentialRead):
     secret: str
+
+
+class DeviceCreateSch(BaseModel):
+    serial: str
+    name: str
+    type: str
+    client_id: int | None = None
+    asset_id: int | None = None
+
+
+class ProvisionedDeviceSch(BaseModel):
+    id_device: int
+    serial: str
+    name: str
+    type: str
+    communication_protocol: str
+    active: bool
+
+
+class ProvisioningMqttSch(BaseModel):
+    host: str
+    port: int
+    tls_enabled: bool
+    username: str
+    password: str
+    location_topic: str
+    status_topic: str
+    heartbeat_topic: str
+
+
+class ProvisioningSecuritySch(BaseModel):
+    hmac_secret: str
+    algorithm: str = "HMAC-SHA256"
+
+
+class DeviceProvisioningResponseSch(BaseModel):
+    device: ProvisionedDeviceSch
+    mqtt: ProvisioningMqttSch
+    security: ProvisioningSecuritySch

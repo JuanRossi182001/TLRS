@@ -85,7 +85,10 @@ class Settings(BaseSettings):
 
     mqtt_location_topic: str = "gps/devices/+/location"
     mqtt_tls_enabled: bool = False
-
+    credential_encryption_key: str | None = None
+    
+    mqtt_public_host: str | None = None
+    mqtt_public_port: int | None = None
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
