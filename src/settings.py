@@ -96,6 +96,8 @@ class Settings(BaseSettings):
         secrets_dir="/run/secrets",
     )
 
+    jwt_secret_key: str | None = None
+    jwt_algorithm: str | None = None
     @property
     def sqlalchemy_database_url(self) -> str:
         database_url = self.db_connection_url or self.database_url

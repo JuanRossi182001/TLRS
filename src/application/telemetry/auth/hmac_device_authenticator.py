@@ -3,7 +3,8 @@ import hmac
 import hashlib
 from datetime import datetime, timezone
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.telemetry.authentication_result import AuthenticationResult
 from src.application.telemetry.incoming_telemetry_envelope import IncomingTelemetryEnvelope
@@ -18,11 +19,11 @@ class HmacDeviceAuthenticator(DeviceAuthenticator):
     Authenticates devices using HMAC signature.
     """
 
-    def __init__(self, db: Session, max_time_skew_seconds: int = 180):
+    def __init__(self, db: AsyncSession, max_time_skew_seconds: int = 180):
         self.db = db
         self.max_time_skew_seconds = max_time_skew_seconds
 
-    def authenticate(
+    async def authenticate(
         self,
         envelope: IncomingTelemetryEnvelope,
     ) -> AuthenticationResult:
@@ -42,25 +43,25 @@ class HmacDeviceAuthenticator(DeviceAuthenticator):
         if not timestamp:
             return self._fail("Missing timestamp")
 
-        device = (
-            self.db.query(Device)
+        device_result = await self.db.execute(
+            select(Device)
             .filter(Device.serial == serial,
                     Device.active == True)
-            .first()
         )
+        device = device_result.scalar_one_or_none()
 
         if not device:
             return self._fail("Device not found or inactive")
 
-        credential = (
-            self.db.query(DeviceCredential)
+        credential_result = await self.db.execute(
+            select(DeviceCredential)
             .filter(
                 DeviceCredential.device_id == device.id_device,
                 DeviceCredential.status == CredentialStatus.ACTIVE,
             )
             .order_by(DeviceCredential.created_at.desc())
-            .first()
         )
+        credential = credential_result.scalars().first()
 
         if not credential:
             return self._fail("No active credential found")

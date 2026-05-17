@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.security.credential_generator import CredentialGenerator 
 from src.models.device import (
@@ -13,7 +13,7 @@ from src.models.device import DeviceCredential
 class DeviceProvisioningService:
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         credential_generator: CredentialGenerator,
         mqtt_public_host: str,
         mqtt_public_port: int,
@@ -25,7 +25,7 @@ class DeviceProvisioningService:
         self.mqtt_public_port = mqtt_public_port
         self.mqtt_tls_enabled = mqtt_tls_enabled
 
-    def provision_device(
+    async def provision_device(
         self,
         serial: str,
         name: str,
@@ -53,7 +53,7 @@ class DeviceProvisioningService:
         )
 
         self.db.add(device)
-        self.db.flush()
+        await self.db.flush()
 
         credential = DeviceCredential(
             device_id=device.id_device,
@@ -67,8 +67,8 @@ class DeviceProvisioningService:
         )
 
         self.db.add(credential)
-        self.db.commit()
-        self.db.refresh(device)
+        await self.db.commit()
+        await self.db.refresh(device)
 
         return {
             "device": {

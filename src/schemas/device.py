@@ -10,6 +10,7 @@ from src.models.device import (
 
 
 class DeviceBase(BaseModel):
+    id_device: int
     serial: str = Field(min_length=1, max_length=255)
     name: str = Field(min_length=1, max_length=255)
     type: str = Field(min_length=1, max_length=255)
@@ -20,7 +21,28 @@ class DeviceBase(BaseModel):
     active: bool = False
 
 
+class DeviceLastLocation(BaseModel):
+    id_device: int
+    serial: str
+    name: str
+    type: str
+    client_id: int | None = None
+    asset_id: int | None = None
+    active: bool = False
+    id_location: int | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    altitude: float | None = None
+    accuracy: float | None = None
+    device_timestamp: datetime | None = None
+    received_at: datetime | None = None
 
+class DeviceCreate(BaseModel):
+    serial: str
+    name: str
+    type: str
+    client_id: int | None = None
+    asset_id: int | None = None
 
 class DeviceUpdate(BaseModel):
     serial: Optional[str] =  None 

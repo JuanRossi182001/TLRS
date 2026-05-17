@@ -1,7 +1,9 @@
 from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
-from sqlalchemy.orm import Query, Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Select
 
 
 ModelType = TypeVar("ModelType")
@@ -15,15 +17,15 @@ class CrudBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
     deleted_no = "N"
     deleted_yes = "Y"
 
-    def __init__(self, db: Session, model: type[ModelType] | None = None):
+    def __init__(self, db: AsyncSession, model: type[ModelType] | None = None):
         self.db = db
         self.model = model or self.model
 
         if self.model is None:
             raise ValueError("CrudBase requires a SQLAlchemy model.")
 
-    def get(self, id: Any, *, include_deleted: bool = False) -> ModelType | None:
-        db_obj = self.db.get(self.model, id)
+    async def get(self, id: Any, *, include_deleted: bool = False) -> ModelType | None:
+        db_obj = await self.db.get(self.model, id)
 
         if db_obj is None:
             return None
@@ -33,7 +35,7 @@ class CrudBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
 
         return db_obj
 
-    def get_multi(
+    async def get_multi(
         self,
         skip: int = 0,
         limit: int = 100,
@@ -41,9 +43,10 @@ class CrudBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         include_deleted: bool = False,
     ) -> list[ModelType]:
         query = self._query(include_deleted=include_deleted)
-        return query.offset(skip).limit(limit).all()
+        result = await self.db.execute(query.offset(skip).limit(limit))
+        return list(result.scalars().all())
 
-    def create(
+    async def create(
         self,
         obj_in: CreateSchemaType | dict[str, Any],
         *,
@@ -57,16 +60,16 @@ class CrudBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         self.db.add(db_obj)
 
         if commit:
-            self.db.commit()
+            await self.db.commit()
 
             if refresh:
-                self.db.refresh(db_obj)
+                await self.db.refresh(db_obj)
         else:
-            self.db.flush()
+            await self.db.flush()
 
         return db_obj
 
-    def update(
+    async def update(
         self,
         db_obj: ModelType,
         obj_in: UpdateSchemaType | dict[str, Any],
@@ -82,22 +85,22 @@ class CrudBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         self.db.add(db_obj)
 
         if commit:
-            self.db.commit()
+            await self.db.commit()
 
             if refresh:
-                self.db.refresh(db_obj)
+                await self.db.refresh(db_obj)
         else:
-            self.db.flush()
+            await self.db.flush()
 
         return db_obj
 
-    def delete(
+    async def delete(
         self,
         id: Any,
         *,
         commit: bool = True,
     ) -> ModelType | None:
-        db_obj = self.get(id)
+        db_obj = await self.get(id)
 
         if db_obj is None:
             return None
@@ -106,23 +109,23 @@ class CrudBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
             setattr(db_obj, self.deleted_field, self.deleted_yes)
             self.db.add(db_obj)
         else:
-            self.db.delete(db_obj)
+            await self.db.delete(db_obj)
 
         if commit:
-            self.db.commit()
+            await self.db.commit()
         else:
-            self.db.flush()
+            await self.db.flush()
 
         return db_obj
 
-    def restore(
+    async def restore(
         self,
         id: Any,
         *,
         commit: bool = True,
         refresh: bool = True,
     ) -> ModelType | None:
-        db_obj = self.get(id, include_deleted=True)
+        db_obj = await self.get(id, include_deleted=True)
 
         if db_obj is None:
             return None
@@ -134,32 +137,32 @@ class CrudBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         self.db.add(db_obj)
 
         if commit:
-            self.db.commit()
+            await self.db.commit()
 
             if refresh:
-                self.db.refresh(db_obj)
+                await self.db.refresh(db_obj)
         else:
-            self.db.flush()
+            await self.db.flush()
 
         return db_obj
 
-    def hard_delete(
+    async def hard_delete(
         self,
         id: Any,
         *,
         commit: bool = True,
     ) -> ModelType | None:
-        db_obj = self.get(id, include_deleted=True)
+        db_obj = await self.get(id, include_deleted=True)
 
         if db_obj is None:
             return None
 
-        self.db.delete(db_obj)
+        await self.db.delete(db_obj)
 
         if commit:
-            self.db.commit()
+            await self.db.commit()
         else:
-            self.db.flush()
+            await self.db.flush()
 
         return db_obj
 
@@ -174,8 +177,8 @@ class CrudBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
 
         return dict(obj)
 
-    def _query(self, *, include_deleted: bool = False) -> Query:
-        query = self.db.query(self.model)
+    def _query(self, *, include_deleted: bool = False) -> Select:
+        query = select(self.model)
 
         if include_deleted or not self._has_deleted_field():
             return query

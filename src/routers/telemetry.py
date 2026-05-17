@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.telemetry.ingress.http_telemetry_ingress import HttpTelemetryIngress
 from src.application.telemetry.auth.hmac_device_authenticator import HmacDeviceAuthenticator
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/telemetry", tags=["Telemetry"])
 )
 async def ingest_telemetry(
     request: Request,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     raw_payload = (await request.body()).decode("utf-8")
     headers = {k.lower(): v for k, v in request.headers.items()}
@@ -39,7 +39,7 @@ async def ingest_telemetry(
         parser=parser,
     )
 
-    result = ingestion_service.ingest(envelope)
+    result = await ingestion_service.ingest(envelope)
 
     if not result.success:
         raise HTTPException(

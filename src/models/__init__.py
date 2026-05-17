@@ -8,7 +8,9 @@ from src.models.device import (
     DeviceState,
 )
 from src.models.location import Location
+from src.models.service import Service, ServiceRoles
 from src.models.telemetryMessage import TelemetryMessage
+from src.models.user import Role, User, UserRoles
 
 __all__ = [
     "Asset",
@@ -19,5 +21,10 @@ __all__ = [
     "DeviceCredential",
     "DeviceState",
     "Location",
+    "Role",
+    "Service",
+    "ServiceRoles",
     "TelemetryMessage",
+    "User",
+    "UserRoles",
 ]

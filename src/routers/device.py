@@ -1,13 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.security.credential_generator import CredentialGenerator
 from src.db.config.connection import get_db
+from src.schemas.user import TokenData  
 from src.schemas.device import (
     DeviceCreateSch,
     DeviceProvisioningResponseSch,
+    DeviceBase,
+    DeviceLastLocation,
 )
+from src.utils.validations import validate_user_service_access
+from src.service.crud_user import get_current_user
+from src.service.crud_device import DeviceService
 from src.service.device_provisioning_service import DeviceProvisioningService
 from src.settings import settings
 
@@ -20,10 +26,13 @@ router = APIRouter(prefix="/devices", tags=["Devices"])
     status_code=status.HTTP_201_CREATED,
     response_model=DeviceProvisioningResponseSch,
 )
-def create_device(
+async def create_device(
     payload: DeviceCreateSch,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
 ):
+
+    await validate_user_service_access(current_user, "device:create device", db)
     service = DeviceProvisioningService(
         db=db,
         credential_generator=CredentialGenerator(),
@@ -33,7 +42,7 @@ def create_device(
     )
 
     try:
-        return service.provision_device(
+        return await service.provision_device(
             serial=payload.serial,
             name=payload.name,
             type=payload.type,
@@ -42,15 +51,52 @@ def create_device(
         )
 
     except IntegrityError:
-        db.rollback()
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Device serial or MQTT username already exists.",
         )
 
     except Exception as exc:
-        db.rollback()
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
+
+
+@router.get(
+    "/my-devices",
+    status_code=status.HTTP_200_OK,
+    response_model=list[DeviceBase]
+)
+async def get_my_devices(
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
+
+    await validate_user_service_access(current_user, "device:get my devices", db)
+    device_service = DeviceService(db)
+
+    return await device_service.get_devices_by_client_id(client_id=current_user.client_id)
+
+
+@router.get(
+    "/my-devices/latest-locations",
+    status_code=status.HTTP_200_OK,
+    response_model=list[DeviceLastLocation],
+)
+async def get_my_devices_latest_locations(
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
+    await validate_user_service_access(
+        current_user,
+        "device:get latest locations",
+        db,
+    )
+    device_service = DeviceService(db)
+
+    return await device_service.get_latest_locations_by_client_id(
+        client_id=current_user.client_id,
+    )

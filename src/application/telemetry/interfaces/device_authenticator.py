@@ -12,7 +12,7 @@ class DeviceAuthenticator(ABC):
     """
 
     @abstractmethod
-    def authenticate(
+    async def authenticate(
         self,
         envelope: IncomingTelemetryEnvelope,
     ) -> AuthenticationResult:

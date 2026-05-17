@@ -2,7 +2,8 @@ from src.application.telemetry.authentication_result import AuthenticationResult
 from src.application.telemetry.incoming_telemetry_envelope import IncomingTelemetryEnvelope
 from src.application.telemetry.interfaces.device_authenticator import DeviceAuthenticator
 from src.models.device import Device, DeviceCredential, CredentialStatus
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class ApiKeyDeviceAuthenticator(DeviceAuthenticator):
@@ -11,10 +12,10 @@ class ApiKeyDeviceAuthenticator(DeviceAuthenticator):
     Authenticates devices using a device serial + API key strategy.
     """
 
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
 
-    def authenticate(
+    async def authenticate(
         self,
         envelope: IncomingTelemetryEnvelope,
     ) -> AuthenticationResult:
@@ -33,11 +34,11 @@ class ApiKeyDeviceAuthenticator(DeviceAuthenticator):
                 failure_reason="Missing API key.",
             )
 
-        device = (
-            self.db.query(Device)
+        device_result = await self.db.execute(
+            select(Device)
             .filter(Device.serial == device_serial)
-            .first()
         )
+        device = device_result.scalar_one_or_none()
 
         if not device:
             return AuthenticationResult(
@@ -51,15 +52,15 @@ class ApiKeyDeviceAuthenticator(DeviceAuthenticator):
                 failure_reason="Device is inactive.",
             )
 
-        credential = (
-            self.db.query(DeviceCredential)
+        credential_result = await self.db.execute(
+            select(DeviceCredential)
             .filter(
                 DeviceCredential.device_id == device.id_device,
                 DeviceCredential.status == CredentialStatus.ACTIVE,
             )
             .order_by(DeviceCredential.created_at.desc())
-            .first()
         )
+        credential = credential_result.scalars().first()
 
         if not credential:
             return AuthenticationResult(

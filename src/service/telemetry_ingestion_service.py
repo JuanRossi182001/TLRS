@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.telemetry.incoming_telemetry_envelope import IncomingTelemetryEnvelope
 from src.application.telemetry.interfaces.device_authenticator import DeviceAuthenticator
@@ -17,7 +17,7 @@ class TelemetryIngestionService:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         authenticator: DeviceAuthenticator,
         parser: TelemetryParser,
     ):
@@ -25,11 +25,11 @@ class TelemetryIngestionService:
         self.authenticator = authenticator
         self.parser = parser
 
-    def ingest(
+    async def ingest(
         self,
         envelope: IncomingTelemetryEnvelope,
     ) -> TelemetryIngestionResult:
-        auth_result = self.authenticator.authenticate(envelope)
+        auth_result = await self.authenticator.authenticate(envelope)
 
         if not auth_result.is_authenticated or not auth_result.device:
             return TelemetryIngestionResult(
@@ -39,27 +39,27 @@ class TelemetryIngestionService:
 
         device = auth_result.device
 
-        telemetry_message =self._store_raw_telemetry(device.id_device, envelope)
-        self.db.commit() # i commit here for the first time to save the raw message for precaution if the parsing fails.
+        telemetry_message = await self._store_raw_telemetry(device.id_device, envelope)
+        await self.db.commit() # i commit here for the first time to save the raw message for precaution if the parsing fails.
                          # i took this decision because i dont want to loose the raw message if the parsing fails.
         try:
             normalized_telemetry = self.parser.parse(envelope)
         except ValueError as exc:
             telemetry_message.error_message = str(exc)
             self.db.add(telemetry_message)
-            self.db.commit()
+            await self.db.commit()
             return TelemetryIngestionResult(
                 success=False,
                 device=device,
                 failure_reason=str(exc),
             )
 
-        location = self._store_location(device.id_device, normalized_telemetry, envelope)
+        location = await self._store_location(device.id_device, normalized_telemetry, envelope)
         telemetry_message.processed = True
         
         self.db.add(telemetry_message)
         self._update_device_state_last_seen(device, envelope)
-        self.db.commit()
+        await self.db.commit()
 
         return TelemetryIngestionResult(
             success=True,
@@ -67,7 +67,7 @@ class TelemetryIngestionService:
             location=location,
         )
 
-    def _store_raw_telemetry(
+    async def _store_raw_telemetry(
         self,
         device_id: int,
         envelope: IncomingTelemetryEnvelope,
@@ -82,10 +82,10 @@ class TelemetryIngestionService:
             error_message=None,
         )
         self.db.add(telemetry_message)
-        self.db.flush()
+        await self.db.flush()
         return telemetry_message
 
-    def _store_location(
+    async def _store_location(
     self,
     device_id: int,
     normalized_telemetry,
@@ -102,7 +102,7 @@ class TelemetryIngestionService:
             geometry=None,
         )
         self.db.add(location)
-        self.db.flush()
+        await self.db.flush()
         return location
 
     def _update_device_state_last_seen(self, device, envelope: IncomingTelemetryEnvelope) -> None:
