@@ -17,3 +17,10 @@ class ClientResponse(BaseModel):
     id_client: int
     name: str
     email: str
+
+class ClientDashboardResponse(BaseModel):
+    id_client: int
+    name: str
+    email: str
+    device_count: int
+    user_count: int

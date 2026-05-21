@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,8 +8,10 @@ from src.schemas.user import TokenData
 from src.schemas.device import (
     DeviceCreateSch,
     DeviceProvisioningResponseSch,
-    DeviceBase,
+    DeviceAdminResponse,
     DeviceLastLocation,
+    DeviceBase,
+    DeviceAdminResponse
 )
 from src.utils.validations import validate_user_service_access
 from src.service.crud_user import get_current_user

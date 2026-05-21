@@ -1,11 +1,3 @@
-from src.models.user import User, UserSession
-from src.schemas.user import (
-    TokenData,
-    UserCreate,
-    UserUpdate
-)
-from src.settings import settings
-
 from typing import Annotated
 import hashlib
 import jwt
@@ -14,7 +6,17 @@ from datetime import datetime, timedelta
 from fastapi import HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, func, update
+
+from src.models.user import User, UserSession
+from src.models.client import Client
+from src.schemas.user import (
+    TokenData,
+    UserCreate,
+    UserUpdate,
+    UserDashboardResponse
+)
+from src.settings import settings
 from src.service.crud_base import CrudBase
 
 
@@ -202,15 +204,28 @@ class UserService(CrudBase[User, UserCreate, UserUpdate]):
         await self.db.commit()
 
     async def delete_stale_sessions(self, retention_days: int) -> int:
-        cutoff = datetime.utcnow() - timedelta(days=retention_days)
+        now = datetime.utcnow()
+        cutoff = now - timedelta(days=retention_days)
+        stale_session_ids = select(UserSession.id_session).where(
+            UserSession.issued_at < cutoff,
+            or_(
+                UserSession.revoked_at.is_not(None),
+                UserSession.expires_at < now,
+            ),
+        )
+
+        await self.db.execute(
+            update(UserSession)
+            .where(UserSession.replaced_by_session_id.in_(stale_session_ids))
+            .values(replaced_by_session_id=None)
+            .execution_options(synchronize_session=False)
+        )
         result = await self.db.execute(
-            delete(UserSession).where(
-                UserSession.issued_at < cutoff,
-                or_(
-                    UserSession.revoked_at.is_not(None),
-                    UserSession.expires_at < datetime.utcnow(),
-                ),
+            delete(UserSession)
+            .where(
+                UserSession.id_session.in_(stale_session_ids),
             )
+            .execution_options(synchronize_session=False)
         )
         await self.db.commit()
         return result.rowcount or 0
@@ -257,6 +272,38 @@ class UserService(CrudBase[User, UserCreate, UserUpdate]):
         )
         return encoded_jwt
     
+    async def get_active_users_count(self) -> int:
+        return await self.db.scalar(select(func.count(User.id_user)).where(User.deleted == "N"))
+
+
+    async def get_users_dashboard(self, skip: int = 0, limit: int = 20) -> list[UserDashboardResponse]:
+        latest_sessions = (
+            select(
+                UserSession.user_id,
+                func.max(UserSession.issued_at).label("last_login"),
+            )
+            .where(
+                UserSession.deleted == "N",
+                UserSession.revoked_at.is_(None),
+            )
+            .group_by(UserSession.user_id)
+            .subquery()
+        )
+        stmt = (
+            select(
+                User.id_user,
+                Client.name.label("client_name"),
+                User.is_admin,
+                latest_sessions.c.last_login,
+            )
+            .where(User.deleted == "N")
+            .outerjoin(Client, User.id_client == Client.id_client)
+            .outerjoin(latest_sessions, User.id_user == latest_sessions.c.user_id)
+            .limit(limit)
+            .offset(skip)
+        )
+        result = await self.db.execute(stmt)
+        return result.mappings().all()
 
 # get current user
 def get_current_user(token: Annotated[str, Depends(oauth_bearer)]) -> TokenData:

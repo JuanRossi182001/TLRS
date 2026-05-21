@@ -130,3 +130,19 @@ class DeviceProvisioningResponseSch(BaseModel):
     device: ProvisionedDeviceSch
     mqtt: ProvisioningMqttSch
     security: ProvisioningSecuritySch
+
+class DevicesStatsAdminResult(BaseModel):
+    all_devices: int
+    active_devices: int
+    inactive_devices: int
+    online_devices: int
+    offline_devices: int
+
+class DeviceAdminResponse(BaseModel):
+    id_device: int
+    serial: str
+    name: str
+    client_name: str
+    asset_name: str
+    active: bool
+    state: DeviceState

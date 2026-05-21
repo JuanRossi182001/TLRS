@@ -1,3 +1,5 @@
+from datetime import datetime
+from http import client
 from typing import Optional
 from pydantic import BaseModel
 
@@ -45,3 +47,9 @@ class TokenData(BaseModel):
     username: str
     client_id: int | None = None
     is_admin: bool = False
+
+class UserDashboardResponse(BaseModel):
+    id_user: int
+    client_name: str | None = None
+    is_admin: bool
+    last_login: datetime | None = None
