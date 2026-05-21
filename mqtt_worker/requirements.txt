@@ -1,2 +1,4 @@
+asyncpg
 paho-mqtt
 pydantic
+SQLAlchemy

@@ -1,6 +1,8 @@
+import asyncio
 import signal
 import ssl
 import sys
+import threading
 from typing import Any
 
 from paho.mqtt.client import Client, MQTTMessage
@@ -12,6 +14,9 @@ from src.application.telemetry.auth.hmac_device_authenticator import HmacDeviceA
 from src.application.telemetry.parser.json_telemetry_parser import JsonTelemetryParser
 from src.db.config.config import sessionlocal
 from src.service.telemetry_ingestion_service import TelemetryIngestionService
+
+
+ASYNC_LOOP: asyncio.AbstractEventLoop | None = None
 
 
 def on_connect(
@@ -46,6 +51,22 @@ def on_disconnect(
 
 
 def on_message(client: Client, userdata: Any, message: MQTTMessage):
+    if ASYNC_LOOP is None:
+        print("[WORKER] Async loop is not running. Message rejected.")
+        return
+
+    future = asyncio.run_coroutine_threadsafe(process_message(message), ASYNC_LOOP)
+    future.add_done_callback(log_processing_error)
+
+
+def log_processing_error(future):
+    try:
+        future.result()
+    except Exception as exc:
+        print(f"[WORKER] Message task failed: {exc}")
+
+
+async def process_message(message: MQTTMessage):
     print("\n[MQTT] Message received")
     print(f"[MQTT] Topic: {message.topic}")
 
@@ -55,54 +76,52 @@ def on_message(client: Client, userdata: Any, message: MQTTMessage):
         print("[WORKER] Rejected message. Reason: PAYLOAD_DECODE_ERROR")
         return
 
-    db = sessionlocal()
+    async with sessionlocal() as db:
+        try:
+            ingress = MqttTelemetryIngress()
 
-    try:
-        ingress = MqttTelemetryIngress()
+            envelope = ingress.build_envelope(
+                raw_payload=raw_payload,
+                topic=message.topic,
+                qos=message.qos,
+                retain=message.retain,
+                mqtt_client_id=None,
+                mqtt_username=settings.mqtt_username,
+            )
 
-        envelope = ingress.build_envelope(
-            raw_payload=raw_payload,
-            topic=message.topic,
-            qos=message.qos,
-            retain=message.retain,
-            mqtt_client_id=None,
-            mqtt_username=settings.mqtt_username,
-        )
+            print(f"[WORKER] Envelope auth_metadata: {envelope.auth_metadata}")
+            print(f"[WORKER] Envelope topic: {envelope.topic}")
 
-        print(f"[WORKER] Envelope auth_metadata: {envelope.auth_metadata}")
-        print(f"[WORKER] Envelope topic: {envelope.topic}")
+            authenticator = HmacDeviceAuthenticator(db=db)
+            parser = JsonTelemetryParser()
 
-        authenticator = HmacDeviceAuthenticator(db=db)
-        parser = JsonTelemetryParser()
+            ingestion_service = TelemetryIngestionService(
+                db=db,
+                authenticator=authenticator,
+                parser=parser,
+            )
 
-        ingestion_service = TelemetryIngestionService(
-            db=db,
-            authenticator=authenticator,
-            parser=parser,
-        )
+            result = await ingestion_service.ingest(envelope)
 
-        result = ingestion_service.ingest(envelope)
+            if not result.success:
+                print(f"[WORKER] Rejected message. Reason: {result.failure_reason}")
+                return
 
-        if not result.success:
-            print(f"[WORKER] Rejected message. Reason: {result.failure_reason}")
-            return
+            print("[WORKER] Telemetry processed successfully")
+            print(f"[WORKER] Device ID: {result.device.id_device if result.device else None}")
+            print(f"[WORKER] Location ID: {result.location.id_location if result.location else None}")
 
-        print("[WORKER] Telemetry processed successfully")
-        print(f"[WORKER] Device ID: {result.device.id_device if result.device else None}")
-        print(f"[WORKER] Location ID: {result.location.id_location if result.location else None}")
-
-    except Exception as exc:
-        db.rollback()
-        print(f"[WORKER] Unexpected error: {exc}")
-
-    finally:
-        db.close()
+        except Exception as exc:
+            await db.rollback()
+            print(f"[WORKER] Unexpected error: {exc}")
 
 
 def shutdown(client: Client):
     print("\n[WORKER] Shutting down...")
     client.loop_stop()
     client.disconnect()
+    if ASYNC_LOOP is not None:
+        ASYNC_LOOP.call_soon_threadsafe(ASYNC_LOOP.stop)
     sys.exit(0)
 
 
@@ -121,6 +140,11 @@ def configure_tls(client: Client) -> None:
 
 
 def main():
+    global ASYNC_LOOP
+
+    ASYNC_LOOP = asyncio.new_event_loop()
+    threading.Thread(target=ASYNC_LOOP.run_forever, daemon=True).start()
+
     client = Client(client_id="gps-mqtt-worker")
 
     client.username_pw_set(
