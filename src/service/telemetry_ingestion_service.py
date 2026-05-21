@@ -1,4 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
+from geoalchemy2.elements import WKTElement
 
 from src.application.telemetry.incoming_telemetry_envelope import IncomingTelemetryEnvelope
 from src.application.telemetry.interfaces.device_authenticator import DeviceAuthenticator
@@ -95,6 +96,10 @@ class TelemetryIngestionService:
             device_id=device_id,
             latitude=normalized_telemetry.latitude,
             longitude=normalized_telemetry.longitude,
+            point=WKTElement(
+                f"POINT({normalized_telemetry.longitude} {normalized_telemetry.latitude})",
+                srid=4326,
+            ),
             altitude=normalized_telemetry.altitude,
             accuracy=normalized_telemetry.accuracy,
             device_timestamp=normalized_telemetry.device_timestamp,

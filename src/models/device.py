@@ -1,6 +1,6 @@
 
 from src.db.config.config import base
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, text
 from sqlalchemy import Enum as SqlAlchemyEnum
 from sqlalchemy.orm import Mapped,relationship
 from enum import Enum
@@ -31,9 +31,17 @@ class Device(base):
     """
 
     __tablename__ = "devices"
+    __table_args__ = (
+        Index(
+            "uq_devices_serial_active",
+            "serial",
+            unique=True,
+            postgresql_where=text("deleted = 'N'"),
+        ),
+    )
 
     id_device = Column(Integer, primary_key=True)
-    serial = Column(String, unique=True, nullable=False)
+    serial = Column(String, nullable=False)
     name = Column(String, nullable=False)
     type = Column(String, nullable=False)
     last_seen_at = Column(DateTime, nullable=True)
@@ -81,15 +89,35 @@ class DeviceCredential(base):
     """
 
     __tablename__ = "device_credentials"
+    __table_args__ = (
+        Index(
+            "uq_device_credentials_mqtt_username_active",
+            "mqtt_username",
+            unique=True,
+            postgresql_where=text("deleted = 'N' AND mqtt_username IS NOT NULL"),
+        ),
+        Index(
+            "uq_device_credentials_mqtt_password_hash_active",
+            "mqtt_password_hash",
+            unique=True,
+            postgresql_where=text("deleted = 'N' AND mqtt_password_hash IS NOT NULL"),
+        ),
+        Index(
+            "uq_device_credentials_mqtt_password_encrypted_active",
+            "mqtt_password_encrypted",
+            unique=True,
+            postgresql_where=text("deleted = 'N' AND mqtt_password_encrypted IS NOT NULL"),
+        ),
+    )
 
     id = Column(Integer, primary_key=True)
     device_id = Column(Integer, ForeignKey("devices.id_device"), nullable=False)
 
     secret = Column(String, nullable=False)
     
-    mqtt_username = Column(String, nullable=True, unique=True)
-    mqtt_password_hash = Column(String, nullable=True, unique=True)
-    mqtt_password_encrypted = Column(String, nullable=True, unique=True)
+    mqtt_username = Column(String, nullable=True)
+    mqtt_password_hash = Column(String, nullable=True)
+    mqtt_password_encrypted = Column(String, nullable=True)
     mqtt_provider: Mapped[MqttProvider] = Column(SqlAlchemyEnum(MqttProvider),default=MqttProvider.EMQX_CLOUD, nullable=True)
 
     location_topic = Column(String, nullable=True)

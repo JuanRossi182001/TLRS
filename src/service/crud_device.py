@@ -1,3 +1,5 @@
+import json
+
 from sqlalchemy import func, select
 from src.models.device import Device, DeviceCredential
 from src.models.location import Location
@@ -40,6 +42,7 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
                 Location.longitude.label("longitude"),
                 Location.altitude.label("altitude"),
                 Location.accuracy.label("accuracy"),
+                func.ST_AsGeoJSON(Location.point).label("point"),
                 Location.device_timestamp.label("device_timestamp"),
                 Location.received_at.label("received_at"),
                 func.row_number()
@@ -49,7 +52,8 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
                 )
                 .label("row_number"),
             )
-            .where(Location.deleted == "N")
+            .where(Location.deleted == "N",
+                   Location.device_id != None)
             .subquery()
         )
 
@@ -65,6 +69,7 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
                 latest_location.c.id_location,
                 latest_location.c.latitude,
                 latest_location.c.longitude,
+                latest_location.c.point,
                 latest_location.c.altitude,
                 latest_location.c.accuracy,
                 latest_location.c.device_timestamp,
@@ -78,11 +83,22 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
             .where(
                 Device.client_id == client_id,
                 Device.deleted == "N",
+                latest_location.c.latitude != None,
+                latest_location.c.longitude != None,
+                latest_location.c.point != None
             )
         )
 
         result = await self.db.execute(stmt)
-        return result.mappings().all()
+        rows = result.mappings().all()
+
+        return [
+            {
+                **row,
+                "point": json.loads(row["point"]) if row["point"] else None,
+            }
+            for row in rows
+        ]
 
 
 

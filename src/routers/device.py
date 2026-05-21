@@ -15,6 +15,7 @@ from src.utils.validations import validate_user_service_access
 from src.service.crud_user import get_current_user
 from src.service.crud_device import DeviceService
 from src.service.device_provisioning_service import DeviceProvisioningService
+from src.infrastructure.mqtt.emqx_cloud_provisioning_client import EMQXCloudProvisioningClient
 from src.settings import settings
 
 
@@ -29,15 +30,24 @@ router = APIRouter(prefix="/devices", tags=["Devices"])
 async def create_device(
     payload: DeviceCreateSch,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(get_current_user)
 ):
+    await validate_user_service_access(current_user, "device:create device with all credentials", db)
 
-    await validate_user_service_access(current_user, "device:create device", db)
+    emqx_client = EMQXCloudProvisioningClient(
+        api_base_url=settings.emqx_api_base_url,
+        api_key=settings.emqx_api_key,
+        api_secret=settings.emqx_api_secret,
+        authentication_id=settings.emqx_authentication_id,
+        authorization_enabled=settings.emqx_authorization_enabled,
+    )
+
     service = DeviceProvisioningService(
         db=db,
         credential_generator=CredentialGenerator(),
+        mqtt_broker_client=emqx_client,
         mqtt_public_host=settings.mqtt_host,
-        mqtt_public_port=settings.mqtt_public_port,
+        mqtt_public_port=settings.mqtt_port,
         mqtt_tls_enabled=settings.mqtt_tls_enabled,
     )
 

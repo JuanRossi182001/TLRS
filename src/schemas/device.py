@@ -8,6 +8,9 @@ from src.models.device import (
     DeviceState,
 )
 
+class GeoJSONPoint(BaseModel):
+    type: str = "Point"
+    coordinates: tuple[float, float]
 
 class DeviceBase(BaseModel):
     id_device: int
@@ -32,6 +35,7 @@ class DeviceLastLocation(BaseModel):
     id_location: int | None = None
     latitude: float | None = None
     longitude: float | None = None
+    point: GeoJSONPoint | None = None
     altitude: float | None = None
     accuracy: float | None = None
     device_timestamp: datetime | None = None
@@ -107,7 +111,7 @@ class ProvisionedDeviceSch(BaseModel):
 
 
 class ProvisioningMqttSch(BaseModel):
-    host: str
+    host: str | None
     port: int
     tls_enabled: bool
     username: str
