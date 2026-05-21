@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import Any, TypedDict
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class SettingsConfigDict(TypedDict, total=False):
@@ -45,7 +45,7 @@ class BaseSettings(BaseModel):
                 continue
 
             key, value = line.split("=", 1)
-            values[key.strip().lower()] = value.strip().strip("\"'")
+            values[key.strip().lower()] = BaseSettings._clean_env_value(value)
 
         return values
 
@@ -67,9 +67,16 @@ class BaseSettings(BaseModel):
     def _read_env_value(field_name: str) -> str | None:
         for key in (field_name, field_name.upper()):
             if key in os.environ:
-                return os.environ[key]
+                return BaseSettings._clean_env_value(os.environ[key])
 
         return None
+
+    @staticmethod
+    def _clean_env_value(value: str) -> str:
+        cleaned = value.strip()
+        if cleaned.startswith("="):
+            cleaned = cleaned[1:].strip()
+        return cleaned.strip("\"'")
 
 
 class Settings(BaseSettings):
@@ -87,8 +94,13 @@ class Settings(BaseSettings):
     mqtt_tls_enabled: bool = False
     credential_encryption_key: str | None = None
     
-    mqtt_public_host: str | None = None
-    mqtt_public_port: int | None = None
+
+    emqx_api_base_url: str
+    emqx_api_key: str
+    emqx_api_secret: str
+    emqx_authentication_id: str = "password_based:built_in_database"
+    emqx_authorization_enabled: bool = True
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -98,6 +110,25 @@ class Settings(BaseSettings):
 
     jwt_secret_key: str | None = None
     jwt_algorithm: str | None = None
+    jwt_access_token_expire_minutes: int = 15
+    jwt_refresh_token_expire_days: int = 30
+    environment: str = "development"
+    refresh_token_cookie_secure: bool | None = None
+    refresh_token_cookie_samesite: str = "lax"
+    refresh_token_cookie_path: str = "/user/auth"
+    user_session_max_active_sessions: int = 5
+    user_session_cleanup_retention_days: int = 2
+    user_session_cleanup_interval_hours: int = 6
+
+    @field_validator("refresh_token_cookie_secure", mode="before")
+    @classmethod
+    def validate_refresh_token_cookie_secure(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            normalized = value.strip().strip("\"'").lower()
+            if normalized in {"", "none", "null", "bool | none = none"}:
+                return None
+        return value
+
     @property
     def sqlalchemy_database_url(self) -> str:
         database_url = self.db_connection_url or self.database_url

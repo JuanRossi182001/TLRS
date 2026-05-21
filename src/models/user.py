@@ -1,5 +1,7 @@
+from datetime import datetime
+
 from src.db.config.config import base
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 class User(base):
@@ -15,9 +17,32 @@ class User(base):
     password = Column(String, nullable=False)
     deleted = Column(String(1), default="N", nullable=False)
     id_client = Column(Integer, ForeignKey("clients.id_client"), nullable=True)
-    is_admin=Column(Boolean, default=False, nullable=False)
+    is_admin = Column(Boolean, default=False, nullable=False)
 
     user_roles = relationship("UserRoles", back_populates="user")
+    sessions = relationship("UserSession", back_populates="user")
+
+
+class UserSession(base):
+    __tablename__ = "user_sessions"
+
+    id_session = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id_user"), nullable=False, index=True)
+    refresh_token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    issued_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    revoked_at = Column(DateTime, nullable=True)
+    replaced_by_session_id = Column(
+        Integer,
+        ForeignKey("user_sessions.id_session"),
+        nullable=True,
+    )
+    user_agent = Column(String(512), nullable=True)
+    ip_address = Column(String(45), nullable=True)
+    deleted = Column(String(1), default="N", nullable=False)
+
+    user = relationship("User", back_populates="sessions")
+    replaced_by_session = relationship("UserSession", remote_side=[id_session])
 
 
 class Role(base):

@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.application.security.credential_generator import CredentialGenerator 
+from src.application.security.credential_generator import CredentialGenerator
 from src.models.device import (
     Device,
     DeviceCommunicationProtocol,
@@ -15,12 +15,14 @@ class DeviceProvisioningService:
         self,
         db: AsyncSession,
         credential_generator: CredentialGenerator,
+        mqtt_broker_client,
         mqtt_public_host: str,
         mqtt_public_port: int,
         mqtt_tls_enabled: bool,
     ):
         self.db = db
         self.credential_generator = credential_generator
+        self.mqtt_broker_client = mqtt_broker_client
         self.mqtt_public_host = mqtt_public_host
         self.mqtt_public_port = mqtt_public_port
         self.mqtt_tls_enabled = mqtt_tls_enabled
@@ -67,8 +69,28 @@ class DeviceProvisioningService:
         )
 
         self.db.add(credential)
-        await self.db.commit()
-        await self.db.refresh(device)
+        broker_provisioned = False
+
+        try:
+            await self.mqtt_broker_client.provision_device(
+                mqtt_username=mqtt_username,
+                mqtt_password=mqtt_password,
+                location_topic=location_topic,
+                status_topic=status_topic,
+                heartbeat_topic=heartbeat_topic,
+            )
+            broker_provisioned = True
+
+            await self.db.commit()
+            await self.db.refresh(device)
+
+        except Exception:
+            await self.db.rollback()
+
+            if broker_provisioned:
+                await self._compensate_broker_provisioning(mqtt_username)
+
+            raise
 
         return {
             "device": {
@@ -94,3 +116,21 @@ class DeviceProvisioningService:
                 "algorithm": "HMAC-SHA256",
             },
         }
+
+    async def _compensate_broker_provisioning(self, mqtt_username: str) -> None:
+        deprovision_device = getattr(
+            self.mqtt_broker_client,
+            "deprovision_device",
+            None,
+        )
+
+        if deprovision_device is None:
+            return
+
+        try:
+            await deprovision_device(mqtt_username=mqtt_username)
+        except Exception as exc:
+            print(
+                "[DEVICE_PROVISIONING] Broker compensation failed "
+                f"for {mqtt_username}: {exc}"
+            )

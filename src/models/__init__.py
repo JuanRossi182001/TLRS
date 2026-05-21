@@ -10,7 +10,7 @@ from src.models.device import (
 from src.models.location import Location
 from src.models.service import Service, ServiceRoles
 from src.models.telemetryMessage import TelemetryMessage
-from src.models.user import Role, User, UserRoles
+from src.models.user import Role, User, UserRoles, UserSession
 
 __all__ = [
     "Asset",
@@ -27,4 +27,5 @@ __all__ = [
     "TelemetryMessage",
     "User",
     "UserRoles",
+    "UserSession",
 ]

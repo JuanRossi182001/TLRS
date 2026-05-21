@@ -1,6 +1,4 @@
 from typing import Optional
-import email
-from unicodedata import name
 from pydantic import BaseModel
 
 class UserBase(BaseModel):
@@ -33,6 +31,7 @@ class UserResponse(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
 
 class UserUpdate(BaseModel):
     name : Optional[str] = None
