@@ -156,7 +156,38 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
         result = await self.db.execute(stmt)
         return result.mappings().all()
 
-        
+    async def update_device(self, device_id: int, obj_in: DeviceUpdate) -> Device | None:
+        device = await self.get(device_id)
+        if device is None:
+            return None
+
+        return await self.update(device, obj_in)
+
+    async def deactivate_device(self, device_id: int) -> Device | None:
+        device = await self.get(device_id)
+        if device is None:
+            return None
+
+        device.active = False
+        device.state = DeviceState.OFF
+        self.db.add(device)
+        await self.db.commit()
+        await self.db.refresh(device)
+        return device
+
+    async def reactivate_device(self, device_id: int) -> Device | None:
+        device = await self.get(device_id)
+        if device is None:
+            return None
+
+        device.active = True
+        device.state = DeviceState.OFF
+        self.db.add(device)
+        await self.db.commit()
+        await self.db.refresh(device)
+        return device
+
+
 class DeviceCredentialService(
     CrudBase[DeviceCredential, DeviceCredentialCreate, DeviceCredentialUpdate]
 ):

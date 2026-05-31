@@ -8,5 +8,10 @@ ASYNC_DATABASE_URL = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+
 ASYNC_DATABASE_URL = ASYNC_DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 engine = create_async_engine(ASYNC_DATABASE_URL)
-sessionlocal = async_sessionmaker(autocommit=False, autoflush=False, bind=engine)
+sessionlocal = async_sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+    expire_on_commit=False,
+)
 base = declarative_base()

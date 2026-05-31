@@ -5,6 +5,7 @@ from src.application.telemetry.incoming_telemetry_envelope import IncomingTeleme
 from src.application.telemetry.interfaces.device_authenticator import DeviceAuthenticator
 from src.application.telemetry.interfaces.telemetry_parser import TelemetryParser
 from src.application.telemetry.telemetry_ingestion_result import TelemetryIngestionResult
+from src.service.geofence_evaluation_service import GeoFenceEvaluationService
 from src.models.device import DeviceState
 from src.models.location import Location
 from src.models.telemetryMessage import TelemetryMessage
@@ -60,6 +61,10 @@ class TelemetryIngestionService:
         
         self.db.add(telemetry_message)
         self._update_device_state_last_seen(device, envelope)
+
+        evaluation_service = GeoFenceEvaluationService(self.db)
+        await evaluation_service.evaluate_location(device.id_device, location.id_location)
+
         await self.db.commit()
 
         return TelemetryIngestionResult(

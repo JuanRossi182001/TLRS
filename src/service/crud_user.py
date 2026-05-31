@@ -14,6 +14,7 @@ from src.schemas.user import (
     TokenData,
     UserCreate,
     UserUpdate,
+    UserResponse,
     UserDashboardResponse
 )
 from src.settings import settings
@@ -275,6 +276,62 @@ class UserService(CrudBase[User, UserCreate, UserUpdate]):
     async def get_active_users_count(self) -> int:
         return await self.db.scalar(select(func.count(User.id_user)).where(User.deleted == "N"))
 
+    async def get_users_by_client_id(
+        self,
+        client_id: int,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> list[UserResponse]:
+        stmt = (
+            select(
+                User.id_user,
+                User.name,
+                User.email,
+                User.id_client,
+                User.is_admin,
+            )
+            .where(
+                User.id_client == client_id,
+                User.deleted == "N",
+            )
+            .limit(limit)
+            .offset(skip)
+        )
+        result = await self.db.execute(stmt)
+        return result.mappings().all()
+
+    async def deactivate_user(self, user_id: int) -> User | None:
+        user = await self.get(user_id)
+        if user is None:
+            return None
+
+        user.deleted = "Y"
+
+        await self.db.execute(
+            update(UserSession)
+            .where(
+                UserSession.user_id == user_id,
+                UserSession.deleted == "N",
+                UserSession.revoked_at.is_(None),
+            )
+            .values(revoked_at=datetime.utcnow())
+            .execution_options(synchronize_session=False)
+        )
+        self.db.add(user)
+        await self.db.commit()
+        await self.db.refresh(user)
+        return user
+
+    async def reactivate_user(self, user_id: int) -> User | None:
+        user = await self.get(user_id, include_deleted=True)
+        if user is None:
+            return None
+
+        user.deleted = "N"
+        self.db.add(user)
+        await self.db.commit()
+        await self.db.refresh(user)
+        return user
 
     async def get_users_dashboard(self, skip: int = 0, limit: int = 20) -> list[UserDashboardResponse]:
         latest_sessions = (

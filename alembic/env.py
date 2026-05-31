@@ -24,6 +24,7 @@ from src.models import telemetryMessage
 from src.models import location
 from src.models import service
 from src.models import user
+from src.models import geofence
 target_metadata = base.metadata
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

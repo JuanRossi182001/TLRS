@@ -7,6 +7,12 @@ from src.models.device import (
     DeviceCredential,
     DeviceState,
 )
+from src.models.geofence import (
+    FenceEventType,
+    GeoFence,
+    GeoFenceAssignment,
+    GeoFenceEvent,
+)
 from src.models.location import Location
 from src.models.service import Service, ServiceRoles
 from src.models.telemetryMessage import TelemetryMessage
@@ -20,6 +26,10 @@ __all__ = [
     "DeviceCommunicationProtocol",
     "DeviceCredential",
     "DeviceState",
+    "FenceEventType",
+    "GeoFence",
+    "GeoFenceAssignment",
+    "GeoFenceEvent",
     "Location",
     "Role",
     "Service",
