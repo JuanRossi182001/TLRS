@@ -115,3 +115,23 @@ class GeoFenceEventRead(BaseModel):
     distance_to_boundary_meters: float | None = None
     accuracy: float | None = None
     created_at: datetime
+
+
+class AssetState(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id_asset: int
+    asset_type: str
+    asset_serial: str
+    id_device: int
+    device_serial: str
+    device_name: str
+    fence_id: int
+    geofence_name: str
+    current_status: str
+    last_location_id: int
+    latitude: float
+    longitude: float
+    last_distance_to_boundary_meters: float | None
+    last_accuracy: float | None
+    last_evaluated_at: datetime

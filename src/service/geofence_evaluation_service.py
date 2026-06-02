@@ -1,26 +1,27 @@
 from dataclasses import dataclass
-from enum import Enum
+from datetime import datetime
 
 from sqlalchemy import select, func, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 from geoalchemy2 import Geometry, Geography
 
-from src.models.geofence import GeoFence, GeoFenceAssignment, GeoFenceEvent, FenceEventType
+from src.models.geofence import (
+    FenceEventType,
+    GeoFence,
+    GeoFenceAssignment,
+    GeoFenceAssetState,
+    GeoFenceEvent,
+    GeoFenceStatus,
+)
 from src.models.location import Location
 from src.models.device import Device
-
-
-class GeofenceEvaluationLevel(str, Enum):
-    INSIDE = "INSIDE"
-    NEAR_LIMIT = "NEAR_LIMIT"
-    OUTSIDE = "OUTSIDE"
-    GPS_UNCERTAIN = "GPS_UNCERTAIN"
+from src.models.asset import Asset
 
 
 @dataclass(slots=True)
 class GeofenceEvaluationResult:
     fence_id: int
-    level: GeofenceEvaluationLevel
+    level: GeoFenceStatus
     distance_to_boundary_meters: float | None
     accuracy: float | None
     event_created: bool
@@ -58,17 +59,39 @@ class GeoFenceEvaluationService:
         results: list[GeofenceEvaluationResult] = []
 
         for row in rows:
-            level = self._resolve_level(
+            new_status = self._resolve_status(
                 inside=row.inside,
                 distance_to_boundary_meters=row.distance_to_boundary_meters,
                 accuracy=location.accuracy,
             )
 
-            event_type = self._map_level_to_event_type(level)
+            state, previous_status = await self._get_or_create_asset_state(
+                fence_id=row.fence_id,
+                asset_id=device.asset_id,
+                device_id=device.id_device,
+                location_id=location.id_location,
+                current_status=new_status,
+                distance_to_boundary_meters=row.distance_to_boundary_meters,
+                accuracy=location.accuracy,
+            )
 
-            event_created = False
-            if event_type is not None:
-                event = GeoFenceEvent(
+            event_type = self._resolve_event_type_from_transition(
+                previous_status=previous_status,
+                new_status=new_status,
+            )
+
+            self._update_asset_state(
+                state=state,
+                device_id=device.id_device,
+                location_id=location.id_location,
+                current_status=new_status,
+                distance_to_boundary_meters=row.distance_to_boundary_meters,
+                accuracy=location.accuracy,
+            )
+
+            event_created = event_type is not None
+            if event_created:
+                self._create_event(
                     fence_id=row.fence_id,
                     device_id=device.id_device,
                     asset_id=device.asset_id,
@@ -77,13 +100,11 @@ class GeoFenceEvaluationService:
                     distance_to_boundary_meters=row.distance_to_boundary_meters,
                     accuracy=location.accuracy,
                 )
-                self.db.add(event)
-                event_created = True
 
             results.append(
                 GeofenceEvaluationResult(
                     fence_id=row.fence_id,
-                    level=level,
+                    level=new_status,
                     distance_to_boundary_meters=row.distance_to_boundary_meters,
                     accuracy=location.accuracy,
                     event_created=event_created,
@@ -146,37 +167,226 @@ class GeoFenceEvaluationService:
         result = await self.db.execute(stmt)
         return result.all()
 
-    def _resolve_level(
+    async def _get_or_create_asset_state(
+        self,
+        fence_id: int,
+        asset_id: int,
+        device_id: int,
+        location_id: int,
+        current_status: GeoFenceStatus,
+        distance_to_boundary_meters: float | None,
+        accuracy: float | None,
+    ) -> tuple[GeoFenceAssetState, GeoFenceStatus | None]:
+        
+        stmt = (
+            select(GeoFenceAssetState)
+            .where(
+                GeoFenceAssetState.fence_id == fence_id,
+                GeoFenceAssetState.asset_id == asset_id,
+            )
+            .with_for_update()
+        )
+        result = await self.db.execute(stmt)
+        state = result.scalar_one_or_none()
+        if state is not None:
+            return state, state.current_status
+
+        now = datetime.utcnow()
+        state = GeoFenceAssetState(
+            fence_id=fence_id,
+            asset_id=asset_id,
+            device_id=device_id,
+            current_status=current_status,
+            last_location_id=location_id,
+            last_distance_to_boundary_meters=distance_to_boundary_meters,
+            last_accuracy=accuracy,
+            first_detected_at=now,
+            last_evaluated_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        self.db.add(state)
+        return state, None
+
+    def _resolve_status(
         self,
         inside: bool,
         distance_to_boundary_meters: float | None,
         accuracy: float | None,
-    ) -> GeofenceEvaluationLevel:
+    ) -> GeoFenceStatus:
         if accuracy is not None and accuracy >= self.gps_uncertain_accuracy_meters:
-            return GeofenceEvaluationLevel.GPS_UNCERTAIN
+            return GeoFenceStatus.GPS_UNCERTAIN
 
         if not inside:
-            return GeofenceEvaluationLevel.OUTSIDE
+            return GeoFenceStatus.OUTSIDE
 
         if (
             distance_to_boundary_meters is not None
             and distance_to_boundary_meters <= self.near_limit_threshold_meters
         ):
-            return GeofenceEvaluationLevel.NEAR_LIMIT
+            return GeoFenceStatus.NEAR_LIMIT
 
-        return GeofenceEvaluationLevel.INSIDE
+        return GeoFenceStatus.SAFE
 
-    def _map_level_to_event_type(
+    def _resolve_event_type_from_transition(
         self,
-        level: GeofenceEvaluationLevel,
+        previous_status: GeoFenceStatus | None,
+        new_status: GeoFenceStatus,
     ) -> FenceEventType | None:
-        if level == GeofenceEvaluationLevel.GPS_UNCERTAIN:
-            return FenceEventType.GPS_UNCERTAIN
+        if previous_status == new_status:
+            return None
 
-        if level == GeofenceEvaluationLevel.OUTSIDE:
-            return FenceEventType.EXITED
+        return self.GEOFENCE_TRANSITION_EVENTS.get((previous_status, new_status))
 
-        if level == GeofenceEvaluationLevel.NEAR_LIMIT:
-            return FenceEventType.NEAR_LIMIT
+    def _update_asset_state(
+        self,
+        state: GeoFenceAssetState,
+        device_id: int,
+        location_id: int,
+        current_status: GeoFenceStatus,
+        distance_to_boundary_meters: float | None,
+        accuracy: float | None,
+    ) -> None:
+        now = datetime.utcnow()
+        state.current_status = current_status
+        state.device_id = device_id
+        state.last_location_id = location_id
+        state.last_distance_to_boundary_meters = distance_to_boundary_meters
+        state.last_accuracy = accuracy
+        state.last_evaluated_at = now
+        state.updated_at = now
+        self.db.add(state)
 
-        return None
+    def _create_event(
+        self,
+        fence_id: int,
+        device_id: int,
+        asset_id: int,
+        location_id: int,
+        event_type: FenceEventType,
+        distance_to_boundary_meters: float | None,
+        accuracy: float | None,
+    ) -> GeoFenceEvent:
+        event = GeoFenceEvent(
+            fence_id=fence_id,
+            device_id=device_id,
+            asset_id=asset_id,
+            location_id=location_id,
+            event_type=event_type,
+            distance_to_boundary_meters=distance_to_boundary_meters,
+            accuracy=accuracy,
+        )
+        self.db.add(event)
+        return event
+
+
+
+
+    GEOFENCE_TRANSITION_EVENTS: dict[
+    tuple[GeoFenceStatus | None, GeoFenceStatus],
+    FenceEventType,
+    ] = {
+        (None, GeoFenceStatus.NEAR_LIMIT): FenceEventType.NEAR_LIMIT,
+        (None, GeoFenceStatus.OUTSIDE): FenceEventType.EXITED,
+        (None, GeoFenceStatus.GPS_UNCERTAIN): FenceEventType.GPS_UNCERTAIN,
+
+        (GeoFenceStatus.SAFE, GeoFenceStatus.NEAR_LIMIT): FenceEventType.NEAR_LIMIT,
+        (GeoFenceStatus.SAFE, GeoFenceStatus.OUTSIDE): FenceEventType.EXITED,
+        (GeoFenceStatus.SAFE, GeoFenceStatus.GPS_UNCERTAIN): FenceEventType.GPS_UNCERTAIN,
+
+        (GeoFenceStatus.NEAR_LIMIT, GeoFenceStatus.OUTSIDE): FenceEventType.EXITED,
+        (GeoFenceStatus.NEAR_LIMIT, GeoFenceStatus.GPS_UNCERTAIN): FenceEventType.GPS_UNCERTAIN,
+
+        (GeoFenceStatus.OUTSIDE, GeoFenceStatus.SAFE): FenceEventType.RETURNED,
+        (GeoFenceStatus.OUTSIDE, GeoFenceStatus.NEAR_LIMIT): FenceEventType.RETURNED,
+        (GeoFenceStatus.OUTSIDE, GeoFenceStatus.GPS_UNCERTAIN): FenceEventType.GPS_UNCERTAIN,
+
+        (GeoFenceStatus.GPS_UNCERTAIN, GeoFenceStatus.NEAR_LIMIT): FenceEventType.NEAR_LIMIT,
+        (GeoFenceStatus.GPS_UNCERTAIN, GeoFenceStatus.OUTSIDE): FenceEventType.EXITED,
+    }
+
+
+    async def get_asset_states(self, client_id: int):
+        stmt = self._asset_states_select().where(
+            GeoFence.client_id == client_id,
+            GeoFence.deleted == "N",
+            GeoFence.active.is_(True),
+            Asset.deleted == "N",
+        )
+        result = await self.db.execute(stmt)
+        return list(result.mappings().all())
+
+    async def get_asset_states_by_asset_id(
+        self,
+        client_id: int,
+        asset_id: int,
+    ):
+        asset = await self._get_asset_for_client(
+            client_id=client_id,
+            asset_id=asset_id,
+        )
+        if asset is None:
+            return None
+
+        stmt = self._asset_states_select().where(
+            GeoFence.client_id == client_id,
+            GeoFence.deleted == "N",
+            GeoFence.active.is_(True),
+            Asset.deleted == "N",
+            Asset.id_asset == asset_id,
+        )
+        result = await self.db.execute(stmt)
+        return list(result.mappings().all())
+
+    async def _get_asset_for_client(
+        self,
+        client_id: int,
+        asset_id: int,
+    ) -> Asset | None:
+        stmt = select(Asset).where(
+            Asset.id_asset == asset_id,
+            Asset.client_id == client_id,
+            Asset.deleted == "N",
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    def _asset_states_select(self):
+        stmt = (
+            select(
+                Asset.id_asset,
+                Asset.asset_type,
+                Asset.serial.label("asset_serial"),
+                Device.id_device,
+                Device.serial.label("device_serial"),
+                Device.name.label("device_name"),
+                GeoFenceAssetState.fence_id,
+                GeoFence.name.label("geofence_name"),
+                GeoFenceAssetState.current_status,
+                Location.id_location.label("last_location_id"),
+                Location.latitude,
+                Location.longitude,
+                GeoFenceAssetState.last_distance_to_boundary_meters,
+                GeoFenceAssetState.last_accuracy,
+                GeoFenceAssetState.last_evaluated_at,
+            )
+            .select_from(GeoFenceAssetState)
+            .join(
+                Asset,
+                Asset.id_asset == GeoFenceAssetState.asset_id,
+            )
+            .join(
+                Device,
+                Device.id_device == GeoFenceAssetState.device_id,
+            )
+            .join(
+                GeoFence,
+                GeoFence.id_geofence == GeoFenceAssetState.fence_id,
+            )
+            .join(
+                Location,
+                Location.id_location == GeoFenceAssetState.last_location_id,
+            )
+            .order_by(GeoFenceAssetState.last_evaluated_at.desc())
+        )
+        return stmt

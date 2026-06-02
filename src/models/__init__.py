@@ -11,7 +11,9 @@ from src.models.geofence import (
     FenceEventType,
     GeoFence,
     GeoFenceAssignment,
+    GeoFenceAssetState,
     GeoFenceEvent,
+    GeoFenceStatus,
 )
 from src.models.location import Location
 from src.models.service import Service, ServiceRoles
@@ -29,7 +31,9 @@ __all__ = [
     "FenceEventType",
     "GeoFence",
     "GeoFenceAssignment",
+    "GeoFenceAssetState",
     "GeoFenceEvent",
+    "GeoFenceStatus",
     "Location",
     "Role",
     "Service",

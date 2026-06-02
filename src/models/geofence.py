@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-
+from sqlalchemy import UniqueConstraint
 from geoalchemy2 import Geometry
 from sqlalchemy import (
     Boolean,
@@ -182,3 +182,49 @@ class GeoFenceEvent(base):
     device = relationship("Device")
     asset = relationship("Asset")
     location = relationship("Location")
+
+
+class GeoFenceStatus(Enum):
+    SAFE = "SAFE"
+    NEAR_LIMIT = "NEAR_LIMIT"
+    OUTSIDE = "OUTSIDE"
+    GPS_UNCERTAIN = "GPS_UNCERTAIN"
+
+
+class GeoFenceAssetState(base):
+    __tablename__ = "geofence_asset_states"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "fence_id",
+            "asset_id",
+            name="uq_geofence_asset_state_fence_asset",
+        ),
+    )
+
+    id_state = Column(Integer, primary_key=True)
+
+    fence_id = Column(Integer, ForeignKey("geofences.id_geofence"), nullable=False)
+    asset_id = Column(Integer, ForeignKey("assets.id_asset"), nullable=False)
+    device_id = Column(Integer, ForeignKey("devices.id_device"), nullable=False)
+
+    current_status = Column(SqlAlchemyEnum(GeoFenceStatus), nullable=False)
+
+    last_location_id = Column(Integer, ForeignKey("locations.id_location"), nullable=False)
+    last_distance_to_boundary_meters = Column(Float, nullable=True)
+    last_accuracy = Column(Float, nullable=True)
+
+    first_detected_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_evaluated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    geofence = relationship("GeoFence")
+    asset = relationship("Asset")
+    device = relationship("Device")
+    last_location = relationship("Location")

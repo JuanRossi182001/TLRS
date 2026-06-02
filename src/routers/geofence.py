@@ -1,10 +1,10 @@
-from pickle import LIST
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.config.connection import get_db
 from src.schemas.geofence import (
+    AssetState,
     GeoFenceAssignmentCreate,
     GeoFenceAssignmentRead,
     GeoFenceCreate,
@@ -14,6 +14,7 @@ from src.schemas.geofence import (
 )
 from src.schemas.user import TokenData
 from src.service.crud_geofence import GeoFenceService
+from src.service.geofence_evaluation_service import GeoFenceEvaluationService
 from src.service.crud_user import get_current_user
 from src.utils.validations import validate_user_service_access
 
@@ -259,6 +260,49 @@ async def deactivate_geofence_assignment(
         )
 
     return assignment
+
+
+@router.get(
+    "/states/my-states",
+    status_code=status.HTTP_200_OK,
+    response_model=list[AssetState],
+)
+async def get_my_asset_states(
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
+    await validate_user_service_access(current_user, "geofence:get events", db)
+    client_id = _resolve_client_id(current_user, None)
+
+    service = GeoFenceEvaluationService(db)
+    return await service.get_asset_states(client_id=client_id)
+
+
+@router.get(
+    "/states/assets/{asset_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=list[AssetState],
+)
+async def get_asset_states_by_asset_id(
+    asset_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
+    await validate_user_service_access(current_user, "geofence:get events", db)
+    client_id = _resolve_client_id(current_user, None)
+
+    service = GeoFenceEvaluationService(db)
+    states = await service.get_asset_states_by_asset_id(
+        client_id=client_id,
+        asset_id=asset_id,
+    )
+    if states is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Asset not found.",
+        )
+
+    return states
 
 def _resolve_client_id(
     current_user: TokenData,
