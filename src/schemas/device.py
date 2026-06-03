@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
-
+from src.models.geofence import GeoFenceStatus
 from src.models.device import (
     CredentialStatus,
     DeviceCommunicationProtocol,
@@ -146,3 +146,4 @@ class DeviceAdminResponse(BaseModel):
     asset_name: str
     active: bool
     state: DeviceState
+    status: Optional[GeoFenceStatus] = None

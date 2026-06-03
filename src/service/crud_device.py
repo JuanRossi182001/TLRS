@@ -5,6 +5,7 @@ from src.models.device import Device, DeviceCredential, DeviceState
 from src.models.client import Client
 from src.models.asset import Asset
 from src.models.location import Location
+from src.models.geofence import GeoFenceAssetState
 from src.schemas.device import (
     DeviceCreate,
     DeviceCredentialCreate,
@@ -145,9 +146,11 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
                 Asset.asset_type.label("asset_name"),
                 Device.active,
                 Device.state,
+                GeoFenceAssetState.current_status.label("status"),
             )
             .outerjoin(Client, Device.client_id == Client.id_client)
             .outerjoin(Asset, Device.asset_id == Asset.id_asset)
+            .outerjoin(GeoFenceAssetState, Device.id_device == GeoFenceAssetState.device_id)
             .where(Device.deleted == "N")
             .limit(limit)
             .offset(skip)
