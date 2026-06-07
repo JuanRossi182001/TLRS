@@ -7,6 +7,11 @@ from src.models.device import (
     DeviceCredential,
     DeviceState,
 )
+from src.models.device_command import (
+    DeviceCommand,
+    DeviceCommandStatus,
+    DeviceCommandType,
+)
 from src.models.geofence import (
     FenceEventType,
     GeoFence,
@@ -25,6 +30,9 @@ __all__ = [
     "Client",
     "CredentialStatus",
     "Device",
+    "DeviceCommand",
+    "DeviceCommandStatus",
+    "DeviceCommandType",
     "DeviceCommunicationProtocol",
     "DeviceCredential",
     "DeviceState",

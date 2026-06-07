@@ -34,6 +34,8 @@ class EMQXCloudProvisioningClient:
         location_topic: str,
         status_topic: str,
         heartbeat_topic: str,
+        commands_topic: str,
+        acks_topic: str,
     ) -> None:
         await self.create_authentication_user(
             username=mqtt_username,
@@ -43,10 +45,14 @@ class EMQXCloudProvisioningClient:
         if self.authorization_enabled:
             await self.set_user_authorization_rules(
                 username=mqtt_username,
-                topics=[
+                publish_topics=[
                     location_topic,
                     status_topic,
                     heartbeat_topic,
+                    acks_topic,
+                ],
+                subscribe_topics=[
+                    commands_topic,
                 ],
             )
 
@@ -98,7 +104,8 @@ class EMQXCloudProvisioningClient:
     async def set_user_authorization_rules(
         self,
         username: str,
-        topics: list[str],
+        publish_topics: list[str],
+        subscribe_topics: list[str],
     ) -> None:
         encoded_username = quote(username, safe="")
 
@@ -115,7 +122,15 @@ class EMQXCloudProvisioningClient:
                     "permission": "allow",
                     "topic": topic,
                 }
-                for topic in topics
+                for topic in publish_topics
+            ]
+            + [
+                {
+                    "action": "subscribe",
+                    "permission": "allow",
+                    "topic": topic,
+                }
+                for topic in subscribe_topics
             ],
         }
 

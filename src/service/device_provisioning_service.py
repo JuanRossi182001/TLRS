@@ -42,6 +42,8 @@ class DeviceProvisioningService:
         location_topic = f"gps/devices/{serial}/location"
         status_topic = f"gps/devices/{serial}/status"
         heartbeat_topic = f"gps/devices/{serial}/heartbeat"
+        commands_topic = f"gps/devices/{serial}/commands"
+        acks_topic = f"gps/devices/{serial}/acks"
 
         device = Device(
             serial=serial,
@@ -65,6 +67,8 @@ class DeviceProvisioningService:
             location_topic=location_topic,
             status_topic=status_topic,
             heartbeat_topic=heartbeat_topic,
+            commands_topic=commands_topic,
+            acks_topic=acks_topic,
             status=CredentialStatus.ACTIVE,
         )
 
@@ -78,6 +82,8 @@ class DeviceProvisioningService:
                 location_topic=location_topic,
                 status_topic=status_topic,
                 heartbeat_topic=heartbeat_topic,
+                commands_topic=commands_topic,
+                acks_topic=acks_topic,
             )
             broker_provisioned = True
 
@@ -110,6 +116,8 @@ class DeviceProvisioningService:
                 "location_topic": location_topic,
                 "status_topic": status_topic,
                 "heartbeat_topic": heartbeat_topic,
+                "commands_topic": commands_topic,
+                "acks_topic": acks_topic,
             },
             "security": {
                 "hmac_secret": hmac_secret,

@@ -27,6 +27,8 @@ class MosquittoDynamicSecurityClient:
         location_topic: str,
         status_topic: str,
         heartbeat_topic: str,
+        commands_topic: str,
+        acks_topic: str,
     ) -> None:
         self._create_client(mqtt_username, mqtt_password)
         self._create_role(role_name)
@@ -34,6 +36,9 @@ class MosquittoDynamicSecurityClient:
         self._add_publish_acl(role_name, location_topic)
         self._add_publish_acl(role_name, status_topic)
         self._add_publish_acl(role_name, heartbeat_topic)
+        self._add_publish_acl(role_name, acks_topic)
+        self._add_subscribe_acl(role_name, commands_topic)
+        self._add_receive_acl(role_name, commands_topic)
 
         self._add_client_role(mqtt_username, role_name)
 
@@ -79,6 +84,24 @@ class MosquittoDynamicSecurityClient:
             "addRoleACL",
             role_name,
             "publishClientSend",
+            topic,
+            "allow",
+        ])
+
+    def _add_subscribe_acl(self, role_name: str, topic: str) -> None:
+        self._run([
+            "addRoleACL",
+            role_name,
+            "subscribePattern",
+            topic,
+            "allow",
+        ])
+
+    def _add_receive_acl(self, role_name: str, topic: str) -> None:
+        self._run([
+            "addRoleACL",
+            role_name,
+            "publishClientReceive",
             topic,
             "allow",
         ])

@@ -119,6 +119,8 @@ class ProvisioningMqttSch(BaseModel):
     location_topic: str
     status_topic: str
     heartbeat_topic: str
+    commands_topic: str
+    acks_topic: str
 
 
 class ProvisioningSecuritySch(BaseModel):

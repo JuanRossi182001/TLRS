@@ -1,4 +1,5 @@
 import asyncio
+import json
 import signal
 import ssl
 import sys
@@ -6,6 +7,7 @@ import threading
 from typing import Any
 
 from paho.mqtt.client import Client, MQTTMessage
+from pydantic import ValidationError
 
 from src.settings import settings
 
@@ -13,6 +15,8 @@ from src.application.telemetry.ingress.mqtt_telemetry_ingress import MqttTelemet
 from src.application.telemetry.auth.hmac_device_authenticator import HmacDeviceAuthenticator
 from src.application.telemetry.parser.json_telemetry_parser import JsonTelemetryParser
 from src.db.config.config import sessionlocal
+from src.schemas.device_command_ack import DeviceCommandAckPayload
+from src.service.device_command_ack_service import DeviceCommandAckService
 from src.service.telemetry_ingestion_service import TelemetryIngestionService
 
 
@@ -33,8 +37,10 @@ def on_connect(
         return
 
     client.subscribe(settings.mqtt_location_topic, qos=1)
+    client.subscribe(settings.mqtt_ack_topic, qos=1)
 
     print(f"[MQTT] Subscribed to topic: {settings.mqtt_location_topic}")
+    print(f"[MQTT] Subscribed to topic: {settings.mqtt_ack_topic}")
 
 
 def on_disconnect(
@@ -70,6 +76,18 @@ async def process_message(message: MQTTMessage):
     print("\n[MQTT] Message received")
     print(f"[MQTT] Topic: {message.topic}")
 
+    if message.topic.endswith("/location"):
+        await process_location_message(message)
+        return
+
+    if message.topic.endswith("/acks"):
+        await process_ack_message(message)
+        return
+
+    print("[WORKER] Rejected message. Reason: UNSUPPORTED_TOPIC")
+
+
+async def process_location_message(message: MQTTMessage):
     try:
         raw_payload = message.payload.decode("utf-8")
     except UnicodeDecodeError:
@@ -114,6 +132,47 @@ async def process_message(message: MQTTMessage):
         except Exception as exc:
             await db.rollback()
             print(f"[WORKER] Unexpected error: {exc}")
+
+
+async def process_ack_message(message: MQTTMessage):
+    try:
+        raw_payload = message.payload.decode("utf-8")
+    except UnicodeDecodeError:
+        print("[WORKER] ACK rejected. Reason: ACK_PAYLOAD_DECODE_ERROR")
+        return
+
+    try:
+        payload_data = json.loads(raw_payload)
+    except json.JSONDecodeError:
+        print("[WORKER] ACK rejected. Reason: ACK_INVALID_JSON")
+        return
+
+    if not isinstance(payload_data, dict):
+        print("[WORKER] ACK rejected. Reason: ACK_PAYLOAD_NOT_OBJECT")
+        return
+
+    try:
+        ack_payload = DeviceCommandAckPayload.model_validate(payload_data)
+    except ValidationError as exc:
+        print(f"[WORKER] ACK rejected. Reason: ACK_VALIDATION_ERROR Detail: {exc}")
+        return
+
+    async with sessionlocal() as db:
+        try:
+            service = DeviceCommandAckService(db)
+            result = await service.process_ack(ack_payload)
+
+            if not result.success:
+                await db.rollback()
+                print(f"[WORKER] ACK rejected. Reason: {result.failure_reason}")
+                return
+
+            await db.commit()
+            print(f"[WORKER] ACK processed. Command ID: {ack_payload.command_id}")
+
+        except Exception as exc:
+            await db.rollback()
+            print(f"[WORKER] ACK unexpected error: {exc}")
 
 
 def shutdown(client: Client):
@@ -163,6 +222,8 @@ def main():
     print(f"[WORKER] MQTT port: {settings.mqtt_port}")
     print(f"[WORKER] MQTT user: {settings.mqtt_username}")
     print(f"[WORKER] MQTT TLS: {settings.mqtt_tls_enabled}")
+    print(f"[WORKER] MQTT location topic: {settings.mqtt_location_topic}")
+    print(f"[WORKER] MQTT ACK topic: {settings.mqtt_ack_topic}")
 
     client.connect(
         host=settings.mqtt_host,

@@ -123,6 +123,8 @@ class DeviceCredential(base):
     location_topic = Column(String, nullable=True)
     status_topic = Column(String, nullable=True)
     heartbeat_topic = Column(String, nullable=True)
+    commands_topic = Column(String, nullable=True)
+    acks_topic = Column(String, nullable=True)
     
     deleted = Column(String(1), default="N", nullable=False)
 
