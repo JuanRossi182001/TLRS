@@ -6,3 +6,4 @@ __pycache__/
 /__pycache__
 *.md
 !docs/specs/*.md
+docs

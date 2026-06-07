@@ -16,6 +16,7 @@ from src.models.geofence import (
 from src.models.location import Location
 from src.models.device import Device
 from src.models.asset import Asset
+from src.service.device_command_service import DeviceCommandService
 
 
 @dataclass(slots=True)
@@ -91,7 +92,7 @@ class GeoFenceEvaluationService:
 
             event_created = event_type is not None
             if event_created:
-                self._create_event(
+                event = self._create_event(
                     fence_id=row.fence_id,
                     device_id=device.id_device,
                     asset_id=device.asset_id,
@@ -99,6 +100,12 @@ class GeoFenceEvaluationService:
                     event_type=event_type,
                     distance_to_boundary_meters=row.distance_to_boundary_meters,
                     accuracy=location.accuracy,
+                )
+                await self.db.flush()
+                command_service = DeviceCommandService(self.db)
+                await command_service.create_commands_for_geofence_event(
+                    event=event,
+                    device=device,
                 )
 
             results.append(
