@@ -31,6 +31,21 @@ services:
     command: python -m mqtt_worker.main
     restart: unless-stopped
 
+  command-dispatcher-worker:
+    build:
+      context: .
+      dockerfile: dockerfile
+    container_name: gps_command_dispatcher_worker
+    env_file:
+      - .env
+    secrets:
+      - db_connection_url
+      - db_schema_name
+    volumes:
+      - .:/app
+    command: python -m command_dispatcher_worker.main
+    restart: unless-stopped
+
 secrets:
   db_connection_url:
     environment: DATABASE_URL

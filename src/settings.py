@@ -91,9 +91,12 @@ class Settings(BaseSettings):
     mqtt_password: str = "password"
 
     mqtt_location_topic: str = "gps/devices/+/location"
+    mqtt_ack_topic: str = "gps/devices/+/acks"
     mqtt_tls_enabled: bool = False
     credential_encryption_key: str | None = None
     
+    mqtt_dispatcher_username: str
+    mqtt_dispatcher_password: str
 
     emqx_api_base_url: str
     emqx_api_key: str
