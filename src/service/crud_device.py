@@ -19,23 +19,44 @@ from src.service.crud_base import CrudBase
 class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
     model = Device
 
-    async def get_devices_by_client_id(self, client_id: int):
+    async def get_devices_by_client_id(
+        self,
+        client_id: int,
+        skip: int = 0,
+        limit: int = 100,
+    ):
 
-        stmt = select(
-            Device.id_device,
-            Device.serial,
-            Device.name,
-            Device.type,
-            Device.state,
-            Device.communication_protocol,
-            Device.client_id,
-            Device.asset_id,
-            Device.active
-        ).where(Device.client_id == client_id,
-                Device.deleted == "N"
+        stmt = (
+            select(
+                Device.id_device,
+                Device.serial,
+                Device.name,
+                Device.type,
+                Device.state,
+                Device.communication_protocol,
+                Device.client_id,
+                Device.asset_id,
+                Device.active
+            )
+            .where(
+                Device.client_id == client_id,
+                Device.deleted == "N",
+            )
+            .order_by(Device.id_device)
+            .offset(skip)
+            .limit(limit)
         )
         result = await self.db.execute(stmt)
         return result.mappings().all()
+
+
+    async def count_devices_by_client_id(self, client_id: int) -> int:
+        stmt = select(func.count(Device.id_device)).where(
+            Device.client_id == client_id,
+            Device.deleted == "N",
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one()
 
 
     async def get_latest_locations_by_client_id(self, client_id: int):

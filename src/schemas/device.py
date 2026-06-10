@@ -24,6 +24,13 @@ class DeviceBase(BaseModel):
     active: bool = False
 
 
+class DevicePaginatedResponse(BaseModel):
+    total: int
+    skip: int
+    limit: int
+    items: list[DeviceBase]
+
+
 class DeviceLastLocation(BaseModel):
     id_device: int
     serial: str

@@ -9,6 +9,7 @@ from src.models.asset import Asset
 from src.models.device import Device
 from src.models.geofence import GeoFence, GeoFenceAssignment, GeoFenceEvent
 from src.schemas.geofence import (
+    GeoFenceActivationUpdate,
     GeoFenceAssignmentCreate,
     GeoFenceCreate,
     GeoFenceEventCreate,
@@ -114,6 +115,22 @@ class GeoFenceService(CrudBase[GeoFence, GeoFenceCreate, GeoFenceUpdate]):
         self.db.add(geofence)
         await self.db.commit()
         return True
+
+    async def set_geofence_active(
+        self,
+        geofence_id: int,
+        client_id: int,
+        payload: GeoFenceActivationUpdate,
+    ) -> dict[str, Any] | None:
+        geofence = await self._get_geofence_model_for_client(geofence_id, client_id)
+        if geofence is None:
+            return None
+
+        geofence.active = payload.active
+        self.db.add(geofence)
+        await self.db.commit()
+
+        return await self.get_geofence_for_client(geofence_id, client_id)
 
     async def assign_assets(
         self,

@@ -53,6 +53,10 @@ class GeoFenceUpdate(BaseModel):
     active: bool | None = None
 
 
+class GeoFenceActivationUpdate(BaseModel):
+    active: bool
+
+
 class GeoFenceRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

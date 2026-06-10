@@ -21,8 +21,8 @@ from src.service.telemetry_ingestion_service import TelemetryIngestionService
 
 
 ASYNC_LOOP: asyncio.AbstractEventLoop | None = None
-
-
+PROCESSING_CONCURRENCY = 10
+processing_semaphore: asyncio.Semaphore | None = None
 def on_connect(
     client: Client,
     userdata: Any,
@@ -61,7 +61,10 @@ def on_message(client: Client, userdata: Any, message: MQTTMessage):
         print("[WORKER] Async loop is not running. Message rejected.")
         return
 
-    future = asyncio.run_coroutine_threadsafe(process_message(message), ASYNC_LOOP)
+    future = asyncio.run_coroutine_threadsafe(
+        process_message_limited(message),
+        ASYNC_LOOP,
+    )
     future.add_done_callback(log_processing_error)
 
 
@@ -183,6 +186,14 @@ def shutdown(client: Client):
         ASYNC_LOOP.call_soon_threadsafe(ASYNC_LOOP.stop)
     sys.exit(0)
 
+async def process_message_limited(message: MQTTMessage):
+    if processing_semaphore is None:
+        print("[WORKER] Processing semaphore is not initialized. Message rejected.")
+        return
+
+    async with processing_semaphore:
+        await process_message(message)
+
 
 def configure_tls(client: Client) -> None:
     if not settings.mqtt_tls_enabled:
@@ -197,12 +208,32 @@ def configure_tls(client: Client) -> None:
 
     client.tls_insecure_set(False)
 
+def start_async_loop(loop: asyncio.AbstractEventLoop):
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
+
+async def init_async_resources():
+    global processing_semaphore
+
+    processing_semaphore = asyncio.Semaphore(PROCESSING_CONCURRENCY)
 
 def main():
     global ASYNC_LOOP
 
     ASYNC_LOOP = asyncio.new_event_loop()
-    threading.Thread(target=ASYNC_LOOP.run_forever, daemon=True).start()
+
+    threading.Thread(
+        target=start_async_loop,
+        args=(ASYNC_LOOP,),
+        daemon=True,
+    ).start()
+
+    init_future = asyncio.run_coroutine_threadsafe(
+        init_async_resources(),
+        ASYNC_LOOP,
+    )
+    init_future.result(timeout=5)
 
     client = Client(client_id="gps-mqtt-worker")
 
@@ -224,6 +255,7 @@ def main():
     print(f"[WORKER] MQTT TLS: {settings.mqtt_tls_enabled}")
     print(f"[WORKER] MQTT location topic: {settings.mqtt_location_topic}")
     print(f"[WORKER] MQTT ACK topic: {settings.mqtt_ack_topic}")
+    print(f"[WORKER] Processing concurrency: {PROCESSING_CONCURRENCY}")
 
     client.connect(
         host=settings.mqtt_host,
@@ -235,7 +267,6 @@ def main():
     signal.signal(signal.SIGTERM, lambda *_: shutdown(client))
 
     client.loop_forever()
-
 
 if __name__ == "__main__":
     main()

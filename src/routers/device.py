@@ -8,10 +8,8 @@ from src.schemas.user import TokenData
 from src.schemas.device import (
     DeviceCreateSch,
     DeviceProvisioningResponseSch,
-    DeviceAdminResponse,
     DeviceLastLocation,
-    DeviceBase,
-    DeviceAdminResponse
+    DevicePaginatedResponse,
 )
 from src.utils.validations import validate_user_service_access
 from src.service.crud_user import get_current_user
@@ -80,9 +78,11 @@ async def create_device(
 @router.get(
     "/my-devices",
     status_code=status.HTTP_200_OK,
-    response_model=list[DeviceBase]
+    response_model=DevicePaginatedResponse,
 )
 async def get_my_devices(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: TokenData = Depends(get_current_user),
 ):
@@ -90,7 +90,19 @@ async def get_my_devices(
     await validate_user_service_access(current_user, "device:get my devices", db)
     device_service = DeviceService(db)
 
-    return await device_service.get_devices_by_client_id(client_id=current_user.client_id)
+    total = await device_service.count_devices_by_client_id(client_id=current_user.client_id)
+    items = await device_service.get_devices_by_client_id(
+        client_id=current_user.client_id,
+        skip=skip,
+        limit=limit,
+    )
+
+    return {
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "items": items,
+    }
 
 
 @router.get(

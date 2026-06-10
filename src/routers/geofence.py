@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.config.connection import get_db
 from src.schemas.geofence import (
     AssetState,
+    GeoFenceActivationUpdate,
     GeoFenceAssignmentCreate,
     GeoFenceAssignmentRead,
     GeoFenceCreate,
@@ -139,6 +140,31 @@ async def update_geofence(
             detail="Geofence name already exists for this client.",
         )
 
+    if geofence is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Geofence not found.",
+        )
+
+    return geofence
+
+
+@router.patch(
+    "/{geofence_id}/activation",
+    status_code=status.HTTP_200_OK,
+    response_model=GeoFenceRead,
+)
+async def set_geofence_activation(
+    geofence_id: int,
+    payload: GeoFenceActivationUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
+    await validate_user_service_access(current_user, "geofence:update", db)
+    client_id = _resolve_client_id(current_user, None)
+
+    service = GeoFenceService(db)
+    geofence = await service.set_geofence_active(geofence_id, client_id, payload)
     if geofence is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
