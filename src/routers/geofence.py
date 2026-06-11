@@ -9,7 +9,10 @@ from src.schemas.geofence import (
     GeoFenceAssignmentCreate,
     GeoFenceAssignmentRead,
     GeoFenceCreate,
-    GeoFenceEventRead,
+    GeoFenceEventPaginatedResponse,
+    GeoFenceEventRelevanceFilter,
+    GeoFenceEventTimeFilter,
+    GeoFenceEventTypeFilter,
     GeoFenceRead,
     GeoFenceUpdate,
 )
@@ -73,11 +76,16 @@ async def get_my_geofences(
 @router.get(
     "/events/my-events",
     status_code=status.HTTP_200_OK,
-    response_model=list[GeoFenceEventRead],
+    response_model=GeoFenceEventPaginatedResponse,
 )
 async def get_my_geofence_events(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
+    time_filter: GeoFenceEventTimeFilter = Query(default=GeoFenceEventTimeFilter.ALL),
+    relevance_filter: GeoFenceEventRelevanceFilter = Query(
+        default=GeoFenceEventRelevanceFilter.ALL,
+    ),
+    event_type: GeoFenceEventTypeFilter | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: TokenData = Depends(get_current_user),
 ):
@@ -85,11 +93,28 @@ async def get_my_geofence_events(
     client_id = _resolve_client_id(current_user, None)
 
     service = GeoFenceService(db)
-    return await service.get_events_by_client_id(
+    stats = await service.get_event_stats_by_client_id(
+        client_id=client_id,
+        time_filter=time_filter,
+        relevance_filter=relevance_filter,
+        event_type=event_type,
+    )
+    items = await service.get_events_by_client_id(
         client_id=client_id,
         skip=skip,
         limit=limit,
+        time_filter=time_filter,
+        relevance_filter=relevance_filter,
+        event_type=event_type,
     )
+
+    return {
+        "total": stats.total_events,
+        "skip": skip,
+        "limit": limit,
+        "stats": stats,
+        "items": items,
+    }
 
 
 @router.get(

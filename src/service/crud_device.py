@@ -10,6 +10,7 @@ from src.schemas.device import (
     DeviceCreate,
     DeviceCredentialCreate,
     DeviceCredentialUpdate,
+    DeviceUserStatsResponse,
     DeviceUpdate,
     DevicesStatsAdminResult
 )
@@ -48,15 +49,40 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
         )
         result = await self.db.execute(stmt)
         return result.mappings().all()
-
-
-    async def count_devices_by_client_id(self, client_id: int) -> int:
-        stmt = select(func.count(Device.id_device)).where(
-            Device.client_id == client_id,
-            Device.deleted == "N",
+    async def get_device_stats_by_client_id(
+        self,
+        client_id: int,
+    ) -> DeviceUserStatsResponse:
+        stmt = (
+            select(
+                func.count(Device.id_device).label("total_devices"),
+                func.count(Device.id_device)
+                .filter(Device.active.is_(True))
+                .label("active_devices"),
+                func.count(Device.id_device)
+                .filter(Device.active.is_(False))
+                .label("inactive_devices"),
+                func.count(Device.id_device)
+                .filter(Device.state == DeviceState.ON)
+                .label("online_devices"),
+                func.count(Device.id_device)
+                .filter(Device.state == DeviceState.OFF)
+                .label("offline_devices"),
+            )
+            .where(
+                Device.client_id == client_id,
+                Device.deleted == "N",
+            )
         )
         result = await self.db.execute(stmt)
-        return result.scalar_one()
+        stats = result.one()._mapping
+        return DeviceUserStatsResponse(
+            total_devices=stats["total_devices"],
+            active_devices=stats["active_devices"],
+            inactive_devices=stats["inactive_devices"],
+            online_devices=stats["online_devices"],
+            offline_devices=stats["offline_devices"],
+        )
 
 
     async def get_latest_locations_by_client_id(self, client_id: int):

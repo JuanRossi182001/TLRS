@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -119,6 +120,40 @@ class GeoFenceEventRead(BaseModel):
     distance_to_boundary_meters: float | None = None
     accuracy: float | None = None
     created_at: datetime
+
+
+class GeoFenceEventTimeFilter(str, Enum):
+    TODAY = "today"
+    LAST_7_DAYS = "7_days"
+    ALL = "all"
+
+
+class GeoFenceEventRelevanceFilter(str, Enum):
+    ALL = "all"
+    IMPORTANT_ONLY = "important_only"
+
+
+class GeoFenceEventTypeFilter(str, Enum):
+    EXITED = "EXITED"
+    NEAR_LIMIT = "NEAR_LIMIT"
+    RETURNED = "RETURNED"
+    GPS_UNCERTAIN = "GPS_UNCERTAIN"
+
+
+class GeoFenceEventStatsResponse(BaseModel):
+    total_events: int
+    near_limit_events: int
+    exited_events: int
+    returned_events: int
+    gps_unknown_events: int
+
+
+class GeoFenceEventPaginatedResponse(BaseModel):
+    total: int
+    skip: int
+    limit: int
+    stats: GeoFenceEventStatsResponse
+    items: list[GeoFenceEventRead]
 
 
 class AssetState(BaseModel):

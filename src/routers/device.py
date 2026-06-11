@@ -90,7 +90,9 @@ async def get_my_devices(
     await validate_user_service_access(current_user, "device:get my devices", db)
     device_service = DeviceService(db)
 
-    total = await device_service.count_devices_by_client_id(client_id=current_user.client_id)
+    stats = await device_service.get_device_stats_by_client_id(
+        client_id=current_user.client_id,
+    )
     items = await device_service.get_devices_by_client_id(
         client_id=current_user.client_id,
         skip=skip,
@@ -98,9 +100,10 @@ async def get_my_devices(
     )
 
     return {
-        "total": total,
+        "total": stats.total_devices,
         "skip": skip,
         "limit": limit,
+        "stats": stats,
         "items": items,
     }
 

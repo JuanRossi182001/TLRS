@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from geoalchemy2.elements import WKTElement
@@ -7,12 +7,16 @@ from sqlalchemy import func, select
 
 from src.models.asset import Asset
 from src.models.device import Device
-from src.models.geofence import GeoFence, GeoFenceAssignment, GeoFenceEvent
+from src.models.geofence import FenceEventType, GeoFence, GeoFenceAssignment, GeoFenceEvent
 from src.schemas.geofence import (
     GeoFenceActivationUpdate,
     GeoFenceAssignmentCreate,
     GeoFenceCreate,
     GeoFenceEventCreate,
+    GeoFenceEventRelevanceFilter,
+    GeoFenceEventStatsResponse,
+    GeoFenceEventTimeFilter,
+    GeoFenceEventTypeFilter,
     GeoFenceUpdate,
     GeoJSONMultiPolygon,
 )
@@ -255,7 +259,16 @@ class GeoFenceService(CrudBase[GeoFence, GeoFenceCreate, GeoFenceUpdate]):
         client_id: int,
         skip: int = 0,
         limit: int = 100,
+        time_filter: GeoFenceEventTimeFilter = GeoFenceEventTimeFilter.ALL,
+        relevance_filter: GeoFenceEventRelevanceFilter = GeoFenceEventRelevanceFilter.ALL,
+        event_type: GeoFenceEventTypeFilter | None = None,
     ) -> list[dict[str, Any]]:
+        filters = self._build_event_filters(
+            client_id=client_id,
+            time_filter=time_filter,
+            relevance_filter=relevance_filter,
+            event_type=event_type,
+        )
         result = await self.db.execute(
             select(
                 GeoFenceEvent.id_event,
@@ -275,15 +288,93 @@ class GeoFenceService(CrudBase[GeoFence, GeoFenceCreate, GeoFenceUpdate]):
             .join(GeoFence, GeoFence.id_geofence == GeoFenceEvent.fence_id)
             .join(Device, Device.id_device == GeoFenceEvent.device_id)
             .outerjoin(Asset, Asset.id_asset == GeoFenceEvent.asset_id)
-            .where(
-                GeoFence.client_id == client_id,
-                GeoFence.deleted == "N",
-            )
+            .where(*filters)
             .order_by(GeoFenceEvent.created_at.desc())
             .offset(skip)
             .limit(limit)
         )
         return list(result.mappings().all())
+
+    async def get_event_stats_by_client_id(
+        self,
+        client_id: int,
+        time_filter: GeoFenceEventTimeFilter = GeoFenceEventTimeFilter.ALL,
+        relevance_filter: GeoFenceEventRelevanceFilter = GeoFenceEventRelevanceFilter.ALL,
+        event_type: GeoFenceEventTypeFilter | None = None,
+    ) -> GeoFenceEventStatsResponse:
+        filters = self._build_event_filters(
+            client_id=client_id,
+            time_filter=time_filter,
+            relevance_filter=relevance_filter,
+            event_type=event_type,
+        )
+        stmt = (
+            select(
+                func.count(GeoFenceEvent.id_event).label("total_events"),
+                func.count(GeoFenceEvent.id_event)
+                .filter(GeoFenceEvent.event_type == FenceEventType.NEAR_LIMIT)
+                .label("near_limit_events"),
+                func.count(GeoFenceEvent.id_event)
+                .filter(GeoFenceEvent.event_type == FenceEventType.EXITED)
+                .label("exited_events"),
+                func.count(GeoFenceEvent.id_event)
+                .filter(GeoFenceEvent.event_type == FenceEventType.RETURNED)
+                .label("returned_events"),
+                func.count(GeoFenceEvent.id_event)
+                .filter(GeoFenceEvent.event_type == FenceEventType.GPS_UNCERTAIN)
+                .label("gps_unknown_events"),
+            )
+            .join(GeoFence, GeoFence.id_geofence == GeoFenceEvent.fence_id)
+            .where(*filters)
+        )
+        result = await self.db.execute(stmt)
+        stats = result.one()._mapping
+        return GeoFenceEventStatsResponse(
+            total_events=stats["total_events"],
+            near_limit_events=stats["near_limit_events"],
+            exited_events=stats["exited_events"],
+            returned_events=stats["returned_events"],
+            gps_unknown_events=stats["gps_unknown_events"],
+        )
+
+    def _build_event_filters(
+        self,
+        client_id: int,
+        time_filter: GeoFenceEventTimeFilter,
+        relevance_filter: GeoFenceEventRelevanceFilter,
+        event_type: GeoFenceEventTypeFilter | None,
+    ) -> list[Any]:
+        filters: list[Any] = [
+            GeoFence.client_id == client_id,
+            GeoFence.deleted == "N",
+        ]
+
+        if time_filter == GeoFenceEventTimeFilter.TODAY:
+            filters.append(
+                GeoFenceEvent.created_at >= datetime.utcnow().replace(
+                    hour=0,
+                    minute=0,
+                    second=0,
+                    microsecond=0,
+                )
+            )
+        elif time_filter == GeoFenceEventTimeFilter.LAST_7_DAYS:
+            filters.append(GeoFenceEvent.created_at >= datetime.utcnow() - timedelta(days=7))
+
+        if relevance_filter == GeoFenceEventRelevanceFilter.IMPORTANT_ONLY:
+            filters.append(
+                GeoFenceEvent.event_type.in_(
+                    [
+                        FenceEventType.EXITED,
+                        FenceEventType.NEAR_LIMIT,
+                    ]
+                )
+            )
+
+        if event_type is not None:
+            filters.append(GeoFenceEvent.event_type == FenceEventType(event_type.value))
+
+        return filters
 
     async def _get_geofence_model_for_client(
         self,

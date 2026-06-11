@@ -24,10 +24,19 @@ class DeviceBase(BaseModel):
     active: bool = False
 
 
+class DeviceUserStatsResponse(BaseModel):
+    total_devices: int
+    active_devices: int
+    inactive_devices: int
+    online_devices: int
+    offline_devices: int
+
+
 class DevicePaginatedResponse(BaseModel):
     total: int
     skip: int
     limit: int
+    stats: DeviceUserStatsResponse
     items: list[DeviceBase]
 
 
