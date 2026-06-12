@@ -313,15 +313,23 @@ class GeoFenceEvaluationService:
     }
 
 
-    async def get_asset_states(self, client_id: int):
-        stmt = self._asset_states_select().where(
-            GeoFence.client_id == client_id,
-            GeoFence.deleted == "N",
-            GeoFence.active.is_(True),
-            Asset.deleted == "N",
+    async def get_asset_states(
+        self,
+        client_id: int,
+        skip: int = 0,
+        limit: int = 100,
+    ):
+        filters = self._asset_state_filters(client_id=client_id)
+
+        total_stmt = select(func.count()).select_from(
+            self._asset_states_select().where(*filters).order_by(None).subquery()
         )
-        result = await self.db.execute(stmt)
-        return list(result.mappings().all())
+        total_result = await self.db.execute(total_stmt)
+        total = total_result.scalar_one()
+
+        items_stmt = self._asset_states_select().where(*filters).offset(skip).limit(limit)
+        items_result = await self.db.execute(items_stmt)
+        return total, list(items_result.mappings().all())
 
     async def get_asset_states_by_asset_id(
         self,
@@ -336,11 +344,7 @@ class GeoFenceEvaluationService:
             return None
 
         stmt = self._asset_states_select().where(
-            GeoFence.client_id == client_id,
-            GeoFence.deleted == "N",
-            GeoFence.active.is_(True),
-            Asset.deleted == "N",
-            Asset.id_asset == asset_id,
+            *self._asset_state_filters(client_id=client_id, asset_id=asset_id)
         )
         result = await self.db.execute(stmt)
         return list(result.mappings().all())
@@ -397,3 +401,15 @@ class GeoFenceEvaluationService:
             .order_by(GeoFenceAssetState.last_evaluated_at.desc())
         )
         return stmt
+
+    def _asset_state_filters(self, client_id: int, asset_id: int | None = None):
+        filters = [
+            GeoFence.client_id == client_id,
+            GeoFence.deleted == "N",
+            GeoFence.active.is_(True),
+            Asset.deleted == "N",
+        ]
+        if asset_id is not None:
+            filters.append(Asset.id_asset == asset_id)
+
+        return filters

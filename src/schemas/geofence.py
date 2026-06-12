@@ -174,3 +174,10 @@ class AssetState(BaseModel):
     last_distance_to_boundary_meters: float | None
     last_accuracy: float | None
     last_evaluated_at: datetime
+
+
+class AssetStatePaginatedResponse(BaseModel):
+    total: int
+    skip: int
+    limit: int
+    items: list[AssetState]

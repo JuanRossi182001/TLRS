@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.config.connection import get_db
 from src.schemas.geofence import (
     AssetState,
+    AssetStatePaginatedResponse,
     GeoFenceActivationUpdate,
     GeoFenceAssignmentCreate,
     GeoFenceAssignmentRead,
@@ -316,9 +317,11 @@ async def deactivate_geofence_assignment(
 @router.get(
     "/states/my-states",
     status_code=status.HTTP_200_OK,
-    response_model=list[AssetState],
+    response_model=AssetStatePaginatedResponse,
 )
 async def get_my_asset_states(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: TokenData = Depends(get_current_user),
 ):
@@ -326,7 +329,18 @@ async def get_my_asset_states(
     client_id = _resolve_client_id(current_user, None)
 
     service = GeoFenceEvaluationService(db)
-    return await service.get_asset_states(client_id=client_id)
+    total, items = await service.get_asset_states(
+        client_id=client_id,
+        skip=skip,
+        limit=limit,
+    )
+
+    return {
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "items": items,
+    }
 
 
 @router.get(
