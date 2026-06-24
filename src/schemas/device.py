@@ -16,6 +16,7 @@ class DeviceBase(BaseModel):
     id_device: int
     serial: str = Field(min_length=1, max_length=255)
     name: str = Field(min_length=1, max_length=255)
+    asset_name: str
     type: str = Field(min_length=1, max_length=255)
     state: DeviceState = DeviceState.OFF
     communication_protocol: DeviceCommunicationProtocol = DeviceCommunicationProtocol.HTTP
@@ -44,6 +45,7 @@ class DeviceLastLocation(BaseModel):
     id_device: int
     serial: str
     name: str
+    asset_name: str | None = None
     type: str
     client_id: int | None = None
     asset_id: int | None = None

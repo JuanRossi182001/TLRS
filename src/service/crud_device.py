@@ -15,6 +15,7 @@ from src.schemas.device import (
     DevicesStatsAdminResult
 )
 from src.service.crud_base import CrudBase
+from src.service.geofence_membership_service import GeofenceMembershipService
 
 
 class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
@@ -33,6 +34,7 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
                 Device.serial,
                 Device.name,
                 Device.type,
+                Asset.asset_type.label("asset_name"),
                 Device.state,
                 Device.communication_protocol,
                 Device.client_id,
@@ -43,6 +45,7 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
                 Device.client_id == client_id,
                 Device.deleted == "N",
             )
+            .join(Asset, Device.asset_id == Asset.id_asset)
             .order_by(Device.id_device)
             .offset(skip)
             .limit(limit)
@@ -115,6 +118,7 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
                 Device.serial,
                 Device.name,
                 Device.type,
+                Asset.asset_type.label("asset_name"),
                 Device.client_id,
                 Device.asset_id,
                 Device.active,
@@ -132,6 +136,7 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
                 (latest_location.c.device_id == Device.id_device)
                 & (latest_location.c.row_number == 1),
             )
+            .outerjoin(Asset, Device.asset_id == Asset.id_asset)
             .where(
                 Device.client_id == client_id,
                 Device.deleted == "N",
@@ -184,6 +189,26 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
 
     
     async def get_devices(self, skip: int = 0, limit: int = 20):
+        effective_memberships = GeofenceMembershipService(self.db).effective_memberships_subquery()
+        latest_effective_state = (
+            select(
+                GeoFenceAssetState.device_id.label("device_id"),
+                GeoFenceAssetState.current_status.label("status"),
+                func.row_number()
+                .over(
+                    partition_by=GeoFenceAssetState.device_id,
+                    order_by=GeoFenceAssetState.last_evaluated_at.desc(),
+                )
+                .label("row_number"),
+            )
+            .join(
+                effective_memberships,
+                (effective_memberships.c.fence_id == GeoFenceAssetState.fence_id)
+                & (effective_memberships.c.asset_id == GeoFenceAssetState.asset_id),
+            )
+            .subquery()
+        )
+
         stmt = (
             select(
                 Device.id_device,
@@ -193,11 +218,15 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
                 Asset.asset_type.label("asset_name"),
                 Device.active,
                 Device.state,
-                GeoFenceAssetState.current_status.label("status"),
+                latest_effective_state.c.status,
             )
             .outerjoin(Client, Device.client_id == Client.id_client)
             .outerjoin(Asset, Device.asset_id == Asset.id_asset)
-            .outerjoin(GeoFenceAssetState, Device.id_device == GeoFenceAssetState.device_id)
+            .outerjoin(
+                latest_effective_state,
+                (latest_effective_state.c.device_id == Device.id_device)
+                & (latest_effective_state.c.row_number == 1),
+            )
             .where(Device.deleted == "N")
             .limit(limit)
             .offset(skip)

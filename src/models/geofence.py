@@ -71,6 +71,12 @@ class GeoFence(base):
         cascade="all, delete-orphan",
     )
 
+    asset_group_assignments = relationship(
+        "GeoFenceAssetGroup",
+        back_populates="geofence",
+        cascade="all, delete-orphan",
+    )
+
 
 class GeoFenceAssignment(base):
     __tablename__ = "geofence_assignments"

@@ -6,6 +6,7 @@ from geoalchemy2.elements import WKTElement
 from sqlalchemy import func, select
 
 from src.models.asset import Asset
+from src.models.asset_group import AssetGroup, GeoFenceAssetGroup
 from src.models.device import Device
 from src.models.geofence import FenceEventType, GeoFence, GeoFenceAssignment, GeoFenceEvent
 from src.schemas.geofence import (
@@ -21,6 +22,7 @@ from src.schemas.geofence import (
     GeoJSONMultiPolygon,
 )
 from src.service.crud_base import CrudBase
+from src.service.geofence_membership_service import GeofenceMembershipService
 
 
 class GeoFenceService(CrudBase[GeoFence, GeoFenceCreate, GeoFenceUpdate]):
@@ -80,6 +82,29 @@ class GeoFenceService(CrudBase[GeoFence, GeoFenceCreate, GeoFenceUpdate]):
         result = await self.db.execute(stmt)
         row = result.mappings().first()
         return self._format_geofence(row) if row else None
+
+    async def get_geofence_detail_for_client(
+        self,
+        geofence_id: int,
+        client_id: int,
+    ) -> dict[str, Any] | None:
+        geofence = await self.get_geofence_for_client(geofence_id, client_id)
+        if geofence is None:
+            return None
+
+        direct_assignments = await self._get_direct_assignment_summaries(geofence_id)
+        asset_group_assignments = await self._get_asset_group_assignment_summaries(geofence_id)
+        effective_assets = await self._get_effective_asset_summaries(geofence_id)
+
+        return {
+            **geofence,
+            "assets_assigned_direct": direct_assignments,
+            "asset_groups_assigned": asset_group_assignments,
+            "assets_assigned_effective": effective_assets,
+            "total_assets_direct": len(direct_assignments),
+            "total_asset_groups": len(asset_group_assignments),
+            "total_assets_effective": len(effective_assets),
+        }
 
     async def update_geofence(
         self,
@@ -243,6 +268,13 @@ class GeoFenceService(CrudBase[GeoFence, GeoFenceCreate, GeoFenceUpdate]):
         assignment.active = False
         assignment.unassigned_at = datetime.utcnow()
         self.db.add(assignment)
+
+        membership_service = GeofenceMembershipService(self.db)
+        await membership_service.delete_state_if_unassigned(
+            geofence_id=assignment.fence_id,
+            asset_id=assignment.asset_id,
+        )
+
         await self.db.commit()
         await self.db.refresh(assignment)
         return assignment
@@ -278,6 +310,7 @@ class GeoFenceService(CrudBase[GeoFence, GeoFenceCreate, GeoFenceUpdate]):
                 Device.name.label("device_name"),
                 Device.serial.label("device_serial"),
                 GeoFenceEvent.asset_id,
+                Asset.asset_type.label("asset_name"),
                 Asset.asset_type.label("asset_type"),
                 GeoFenceEvent.location_id,
                 GeoFenceEvent.event_type,
@@ -389,6 +422,87 @@ class GeoFenceService(CrudBase[GeoFence, GeoFenceCreate, GeoFenceUpdate]):
             )
         )
         return result.scalars().first()
+
+    async def _get_direct_assignment_summaries(
+        self,
+        geofence_id: int,
+    ) -> list[dict[str, Any]]:
+        result = await self.db.execute(
+            select(
+                GeoFenceAssignment.id_assignment,
+                GeoFenceAssignment.asset_id,
+                Asset.asset_type.label("asset_name"),
+                Asset.asset_type,
+                Asset.serial.label("asset_serial"),
+                GeoFenceAssignment.active,
+                GeoFenceAssignment.assigned_at,
+                GeoFenceAssignment.unassigned_at,
+            )
+            .join(Asset, Asset.id_asset == GeoFenceAssignment.asset_id)
+            .where(
+                GeoFenceAssignment.fence_id == geofence_id,
+                GeoFenceAssignment.deleted == "N",
+                GeoFenceAssignment.active.is_(True),
+                Asset.deleted == "N",
+            )
+            .order_by(GeoFenceAssignment.assigned_at.desc())
+        )
+        return list(result.mappings().all())
+
+    async def _get_asset_group_assignment_summaries(
+        self,
+        geofence_id: int,
+    ) -> list[dict[str, Any]]:
+        result = await self.db.execute(
+            select(
+                GeoFenceAssetGroup.id_geofence_asset_group,
+                GeoFenceAssetGroup.asset_group_id,
+                AssetGroup.name.label("asset_group_name"),
+                AssetGroup.description.label("asset_group_description"),
+                AssetGroup.active.label("asset_group_active"),
+                GeoFenceAssetGroup.active.label("assignment_active"),
+                GeoFenceAssetGroup.assigned_at,
+                GeoFenceAssetGroup.unassigned_at,
+            )
+            .join(
+                AssetGroup,
+                AssetGroup.id_asset_group == GeoFenceAssetGroup.asset_group_id,
+            )
+            .where(
+                GeoFenceAssetGroup.geofence_id == geofence_id,
+                GeoFenceAssetGroup.deleted == "N",
+                GeoFenceAssetGroup.active.is_(True),
+                AssetGroup.deleted == "N",
+            )
+            .order_by(GeoFenceAssetGroup.assigned_at.desc())
+        )
+        return list(result.mappings().all())
+
+    async def _get_effective_asset_summaries(
+        self,
+        geofence_id: int,
+    ) -> list[dict[str, Any]]:
+        membership_service = GeofenceMembershipService(self.db)
+        effective_asset_ids = await membership_service.get_effective_asset_ids_for_geofence(
+            geofence_id
+        )
+        if not effective_asset_ids:
+            return []
+
+        result = await self.db.execute(
+            select(
+                Asset.id_asset.label("asset_id"),
+                Asset.asset_type.label("asset_name"),
+                Asset.asset_type,
+                Asset.serial.label("asset_serial"),
+            )
+            .where(
+                Asset.id_asset.in_(effective_asset_ids),
+                Asset.deleted == "N",
+            )
+            .order_by(Asset.id_asset)
+        )
+        return list(result.mappings().all())
 
     def _geofence_select(self):
         return select(

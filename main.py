@@ -5,7 +5,7 @@ from fastapi import FastAPI
 
 import src.models  # noqa: F401 - registers SQLAlchemy models before mapper configuration
 from src.application.security.session_cleanup_job import run_user_session_cleanup_job
-from src.routers import admin, device, geofence, rbac, telemetry, user
+from src.routers import admin, asset_group, device, geofence, rbac, telemetry, user
 from fastapi.middleware.cors import CORSMiddleware
 
 
@@ -26,6 +26,7 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(rbac.router)
 app.include_router(telemetry.router)
 app.include_router(device.router)
+app.include_router(asset_group.router)
 app.include_router(geofence.router)
 app.include_router(user.router)
 app.include_router(admin.router)

@@ -2,13 +2,13 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import select, func, cast
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from geoalchemy2 import Geometry, Geography
 
 from src.models.geofence import (
     FenceEventType,
     GeoFence,
-    GeoFenceAssignment,
     GeoFenceAssetState,
     GeoFenceEvent,
     GeoFenceStatus,
@@ -17,6 +17,7 @@ from src.models.location import Location
 from src.models.device import Device
 from src.models.asset import Asset
 from src.service.device_command_service import DeviceCommandService
+from src.service.geofence_membership_service import GeofenceMembershipService
 
 
 @dataclass(slots=True)
@@ -135,6 +136,13 @@ class GeoFenceEvaluationService:
         asset_id: int,
         location_id: int,
     ):
+        membership_service = GeofenceMembershipService(self.db)
+        effective_geofence_ids = await membership_service.get_effective_geofence_ids_for_asset(
+            asset_id
+        )
+        if not effective_geofence_ids:
+            return []
+
         location_point_geometry = cast(Location.point, Geometry(geometry_type="POINT", srid=4326))
 
         boundary_geography = cast(
@@ -155,17 +163,11 @@ class GeoFenceEvaluationService:
                 ).label("distance_to_boundary_meters"),
             )
             .join(
-                GeoFenceAssignment,
-                GeoFenceAssignment.fence_id == GeoFence.id_geofence,
-            )
-            .join(
                 Location,
                 Location.id_location == location_id,
             )
             .where(
-                GeoFenceAssignment.asset_id == asset_id,
-                GeoFenceAssignment.active.is_(True),
-                GeoFenceAssignment.deleted == "N",
+                GeoFence.id_geofence.in_(effective_geofence_ids),
                 GeoFence.active.is_(True),
                 GeoFence.deleted == "N",
             )
@@ -184,7 +186,31 @@ class GeoFenceEvaluationService:
         distance_to_boundary_meters: float | None,
         accuracy: float | None,
     ) -> tuple[GeoFenceAssetState, GeoFenceStatus | None]:
-        
+        now = datetime.utcnow()
+
+        insert_stmt = (
+            insert(GeoFenceAssetState)
+            .values(
+                fence_id=fence_id,
+                asset_id=asset_id,
+                device_id=device_id,
+                current_status=current_status,
+                last_location_id=location_id,
+                last_distance_to_boundary_meters=distance_to_boundary_meters,
+                last_accuracy=accuracy,
+                first_detected_at=now,
+                last_evaluated_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+            .on_conflict_do_nothing(
+                constraint="uq_geofence_asset_state_fence_asset",
+            )
+            .returning(GeoFenceAssetState.id_state)
+        )
+        insert_result = await self.db.execute(insert_stmt)
+        inserted_state_id = insert_result.scalar_one_or_none()
+
         stmt = (
             select(GeoFenceAssetState)
             .where(
@@ -194,26 +220,12 @@ class GeoFenceEvaluationService:
             .with_for_update()
         )
         result = await self.db.execute(stmt)
-        state = result.scalar_one_or_none()
-        if state is not None:
-            return state, state.current_status
+        state = result.scalar_one()
 
-        now = datetime.utcnow()
-        state = GeoFenceAssetState(
-            fence_id=fence_id,
-            asset_id=asset_id,
-            device_id=device_id,
-            current_status=current_status,
-            last_location_id=location_id,
-            last_distance_to_boundary_meters=distance_to_boundary_meters,
-            last_accuracy=accuracy,
-            first_detected_at=now,
-            last_evaluated_at=now,
-            created_at=now,
-            updated_at=now,
-        )
-        self.db.add(state)
-        return state, None
+        if inserted_state_id is not None:
+            return state, None
+
+        return state, state.current_status
 
     def _resolve_status(
         self,
@@ -363,9 +375,11 @@ class GeoFenceEvaluationService:
         return result.scalar_one_or_none()
 
     def _asset_states_select(self):
+        memberships = GeofenceMembershipService(self.db).effective_memberships_subquery()
         stmt = (
             select(
                 Asset.id_asset,
+                Asset.asset_type.label("asset_name"),
                 Asset.asset_type,
                 Asset.serial.label("asset_serial"),
                 Device.id_device,
@@ -382,6 +396,11 @@ class GeoFenceEvaluationService:
                 GeoFenceAssetState.last_evaluated_at,
             )
             .select_from(GeoFenceAssetState)
+            .join(
+                memberships,
+                (memberships.c.fence_id == GeoFenceAssetState.fence_id)
+                & (memberships.c.asset_id == GeoFenceAssetState.asset_id),
+            )
             .join(
                 Asset,
                 Asset.id_asset == GeoFenceAssetState.asset_id,

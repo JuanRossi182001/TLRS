@@ -38,6 +38,12 @@ class Device(base):
             unique=True,
             postgresql_where=text("deleted = 'N'"),
         ),
+        Index(
+            "uq_devices_asset_id_active",
+            "asset_id",
+            unique=True,
+            postgresql_where=text("deleted = 'N' AND asset_id IS NOT NULL"),
+        ),
     )
 
     id_device = Column(Integer, primary_key=True)

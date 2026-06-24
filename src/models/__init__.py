@@ -1,5 +1,6 @@
 from src.models.client import Client
 from src.models.asset import Asset
+from src.models.asset_group import AssetGroup, AssetGroupMember, GeoFenceAssetGroup
 from src.models.device import (
     CredentialStatus,
     Device,
@@ -27,6 +28,8 @@ from src.models.user import Role, User, UserRoles, UserSession
 
 __all__ = [
     "Asset",
+    "AssetGroup",
+    "AssetGroupMember",
     "Client",
     "CredentialStatus",
     "Device",
@@ -39,6 +42,7 @@ __all__ = [
     "FenceEventType",
     "GeoFence",
     "GeoFenceAssignment",
+    "GeoFenceAssetGroup",
     "GeoFenceAssetState",
     "GeoFenceEvent",
     "GeoFenceStatus",

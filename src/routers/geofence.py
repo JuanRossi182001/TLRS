@@ -1,8 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.config.connection import get_db
+from src.schemas.asset_group import (
+    GeoFenceAssetGroupRead,
+    GeofenceAssetGroupsAssign,
+    GeofenceAssetGroupsRemove,
+)
 from src.schemas.geofence import (
     AssetState,
     AssetStatePaginatedResponse,
@@ -10,6 +15,7 @@ from src.schemas.geofence import (
     GeoFenceAssignmentCreate,
     GeoFenceAssignmentRead,
     GeoFenceCreate,
+    GeoFenceDetailRead,
     GeoFenceEventPaginatedResponse,
     GeoFenceEventRelevanceFilter,
     GeoFenceEventTimeFilter,
@@ -18,6 +24,12 @@ from src.schemas.geofence import (
     GeoFenceUpdate,
 )
 from src.schemas.user import TokenData
+from src.service.asset_group_service import (
+    AssetGroupConflictError,
+    AssetGroupNotFoundError,
+    AssetGroupService,
+    AssetGroupValidationError,
+)
 from src.service.crud_geofence import GeoFenceService
 from src.service.geofence_evaluation_service import GeoFenceEvaluationService
 from src.service.crud_user import get_current_user
@@ -121,7 +133,7 @@ async def get_my_geofence_events(
 @router.get(
     "/{geofence_id}",
     status_code=status.HTTP_200_OK,
-    response_model=GeoFenceRead,
+    response_model=GeoFenceDetailRead,
 )
 async def get_geofence(
     geofence_id: int,
@@ -132,7 +144,7 @@ async def get_geofence(
     client_id = _resolve_client_id(current_user, None)
 
     service = GeoFenceService(db)
-    geofence = await service.get_geofence_for_client(geofence_id, client_id)
+    geofence = await service.get_geofence_detail_for_client(geofence_id, client_id)
     if geofence is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -288,6 +300,73 @@ async def get_geofence_assignments(
         )
 
     return assignments
+
+
+@router.post(
+    "/{geofence_id}/asset-groups",
+    status_code=status.HTTP_201_CREATED,
+    response_model=list[GeoFenceAssetGroupRead],
+)
+async def assign_asset_groups_to_geofence(
+    geofence_id: int,
+    payload: GeofenceAssetGroupsAssign,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
+    await validate_user_service_access(current_user, "geofence:assign asset group", db)
+    client_id = _resolve_client_id(current_user, None)
+
+    service = AssetGroupService(db)
+    try:
+        return await service.assign_groups_to_geofence(geofence_id, client_id, payload)
+    except AssetGroupNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=exc.detail,
+        )
+    except AssetGroupValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "message": exc.detail,
+                "asset_group_ids": exc.asset_group_ids,
+            },
+        )
+    except AssetGroupConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.detail,
+        )
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="One or more asset groups are already assigned to this geofence.",
+        )
+
+
+@router.delete(
+    "/{geofence_id}/asset-groups",
+    status_code=status.HTTP_200_OK,
+    response_model=list[GeoFenceAssetGroupRead],
+)
+async def remove_asset_groups_from_geofence(
+    geofence_id: int,
+    payload: GeofenceAssetGroupsRemove = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
+    await validate_user_service_access(current_user, "geofence:remove asset group", db)
+    client_id = _resolve_client_id(current_user, None)
+
+    service = AssetGroupService(db)
+    try:
+        return await service.remove_groups_from_geofence(geofence_id, client_id, payload)
+    except AssetGroupNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=exc.detail,
+        )
 
 
 @router.patch(

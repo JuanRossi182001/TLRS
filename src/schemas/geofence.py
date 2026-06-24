@@ -71,6 +71,44 @@ class GeoFenceRead(BaseModel):
     updated_at: datetime
 
 
+class GeoFenceAssignedAssetRead(BaseModel):
+    id_assignment: int
+    asset_id: int
+    asset_name: str | None = None
+    asset_type: str | None = None
+    asset_serial: str | None = None
+    active: bool
+    assigned_at: datetime
+    unassigned_at: datetime | None = None
+
+
+class GeoFenceAssignedAssetGroupRead(BaseModel):
+    id_geofence_asset_group: int
+    asset_group_id: int
+    asset_group_name: str
+    asset_group_description: str | None = None
+    asset_group_active: bool
+    assignment_active: bool
+    assigned_at: datetime
+    unassigned_at: datetime | None = None
+
+
+class GeoFenceEffectiveAssetRead(BaseModel):
+    asset_id: int
+    asset_name: str | None = None
+    asset_type: str | None = None
+    asset_serial: str | None = None
+
+
+class GeoFenceDetailRead(GeoFenceRead):
+    assets_assigned_direct: list[GeoFenceAssignedAssetRead]
+    asset_groups_assigned: list[GeoFenceAssignedAssetGroupRead]
+    assets_assigned_effective: list[GeoFenceEffectiveAssetRead]
+    total_assets_direct: int
+    total_asset_groups: int
+    total_assets_effective: int
+
+
 class GeoFenceAssignmentCreate(BaseModel):
     asset_ids: list[int] = Field(min_length=1)
 
@@ -113,6 +151,7 @@ class GeoFenceEventRead(BaseModel):
     device_id: int
     device_name: str
     device_serial: str
+    asset_name: str | None = None
     asset_type: str | None = None
     asset_id: int | None = None
     location_id: int
@@ -160,6 +199,7 @@ class AssetState(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id_asset: int
+    asset_name: str
     asset_type: str
     asset_serial: str
     id_device: int

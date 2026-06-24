@@ -32,3 +32,4 @@ class Asset(base):
 
     client = relationship("Client", back_populates="assets")
     devices = relationship("Device", back_populates="asset")
+    asset_group_members = relationship("AssetGroupMember", back_populates="asset")
