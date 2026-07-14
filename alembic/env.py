@@ -17,16 +17,8 @@ if config.config_file_name is not None:
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 from src.db.config.config import DATABASE_URL, base
-from src.models import asset
-from src.models import asset_group
-from src.models import client
-from src.models import device
-from src.models import device_command
-from src.models import telemetryMessage
-from src.models import location
-from src.models import service
-from src.models import user
-from src.models import geofence
+import src.models  # noqa: F401 - register SQLAlchemy models for Alembic
+
 target_metadata = base.metadata
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

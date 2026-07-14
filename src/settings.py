@@ -90,19 +90,19 @@ class Settings(BaseSettings):
     mqtt_username: str = "gps_worker"
     mqtt_password: str = "password"
 
-    mqtt_location_topic: str = "gps/devices/+/location"
-    mqtt_ack_topic: str = "gps/devices/+/acks"
     mqtt_tls_enabled: bool = False
-    credential_encryption_key: str | None = None
-    
-    mqtt_dispatcher_username: str
-    mqtt_dispatcher_password: str
-
-    emqx_api_base_url: str
-    emqx_api_key: str
-    emqx_api_secret: str
-    emqx_authentication_id: str = "password_based:built_in_database"
-    emqx_authorization_enabled: bool = True
+    chirpstack_mqtt_host: str | None = None
+    chirpstack_mqtt_port: int | None = None
+    chirpstack_mqtt_username: str | None = None
+    chirpstack_mqtt_password: str | None = None
+    chirpstack_mqtt_use_tls: bool | None = None
+    chirpstack_mqtt_topic_filter: str = "application/+/device/+/event/+"
+    chirpstack_api_host: str = "localhost"
+    chirpstack_api_port: int = 8080
+    chirpstack_api_token: str | None = None
+    chirpstack_api_use_tls: bool = False
+    chirpstack_api_timeout_seconds: int = 10
+    command_default_expires_seconds: int = 1200
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -142,6 +142,28 @@ class Settings(BaseSettings):
             "Database connection is not configured. Set DB_CONNECTION_URL, "
             "DATABASE_URL, or mount /run/secrets/db_connection_url."
         )
+
+    @property
+    def chirpstack_event_mqtt_host(self) -> str:
+        return self.chirpstack_mqtt_host or self.mqtt_host
+
+    @property
+    def chirpstack_event_mqtt_port(self) -> int:
+        return self.chirpstack_mqtt_port or self.mqtt_port
+
+    @property
+    def chirpstack_event_mqtt_username(self) -> str | None:
+        return self.chirpstack_mqtt_username or self.mqtt_username
+
+    @property
+    def chirpstack_event_mqtt_password(self) -> str | None:
+        return self.chirpstack_mqtt_password or self.mqtt_password
+
+    @property
+    def chirpstack_event_mqtt_tls_enabled(self) -> bool:
+        if self.chirpstack_mqtt_use_tls is None:
+            return self.mqtt_tls_enabled
+        return self.chirpstack_mqtt_use_tls
 
 
 settings = Settings()

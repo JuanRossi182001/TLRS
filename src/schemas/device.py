@@ -1,9 +1,8 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from src.models.geofence import GeoFenceStatus
 from src.models.device import (
-    CredentialStatus,
     DeviceCommunicationProtocol,
     DeviceState,
 )
@@ -19,10 +18,14 @@ class DeviceBase(BaseModel):
     asset_name: str
     type: str = Field(min_length=1, max_length=255)
     state: DeviceState = DeviceState.OFF
-    communication_protocol: DeviceCommunicationProtocol = DeviceCommunicationProtocol.HTTP
+    communication_protocol: DeviceCommunicationProtocol = DeviceCommunicationProtocol.CHIRPSTACK
     client_id: int | None = None
     asset_id: int | None = None
     active: bool = False
+    chirpstack_dev_eui: str | None = None
+    chirpstack_application_id: str | None = None
+    lorawan_class: str | None = None
+    chirpstack_device_profile_id: str | None = None
 
 
 class DeviceUserStatsResponse(BaseModel):
@@ -50,6 +53,10 @@ class DeviceLastLocation(BaseModel):
     client_id: int | None = None
     asset_id: int | None = None
     active: bool = False
+    chirpstack_dev_eui: str | None = None
+    chirpstack_application_id: str | None = None
+    lorawan_class: str | None = None
+    chirpstack_device_profile_id: str | None = None
     id_location: int | None = None
     latitude: float | None = None
     longitude: float | None = None
@@ -65,6 +72,34 @@ class DeviceCreate(BaseModel):
     type: str
     client_id: int | None = None
     asset_id: int | None = None
+    communication_protocol: DeviceCommunicationProtocol = DeviceCommunicationProtocol.CHIRPSTACK
+    chirpstack_dev_eui: str | None = None
+    chirpstack_application_id: str | None = None
+    lorawan_class: str | None = None
+    chirpstack_device_profile_id: str | None = None
+
+    @field_validator("chirpstack_dev_eui")
+    @classmethod
+    def normalize_chirpstack_dev_eui(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = "".join(value.split()).lower()
+        return normalized or None
+
+    @model_validator(mode="after")
+    def validate_chirpstack_requirements(self):
+        if self.communication_protocol != DeviceCommunicationProtocol.CHIRPSTACK:
+            raise ValueError(
+                "Only CHIRPSTACK devices can be created through this endpoint"
+            )
+        if (
+            self.communication_protocol == DeviceCommunicationProtocol.CHIRPSTACK
+            and not self.chirpstack_dev_eui
+        ):
+            raise ValueError(
+                "chirpstack_dev_eui is required for CHIRPSTACK devices"
+            )
+        return self
 
 class DeviceUpdate(BaseModel):
     serial: Optional[str] =  None 
@@ -76,6 +111,18 @@ class DeviceUpdate(BaseModel):
     asset_id: Optional[int] =  None 
     active: Optional[bool] =  None 
     last_seen_at: datetime | None = None
+    chirpstack_dev_eui: str | None = None
+    chirpstack_application_id: str | None = None
+    lorawan_class: str | None = None
+    chirpstack_device_profile_id: str | None = None
+
+    @field_validator("chirpstack_dev_eui")
+    @classmethod
+    def normalize_updated_chirpstack_dev_eui(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = "".join(value.split()).lower()
+        return normalized or None
 
 class DeviceRead(DeviceBase):
     model_config = ConfigDict(from_attributes=True)
@@ -84,39 +131,40 @@ class DeviceRead(DeviceBase):
     last_seen_at: datetime | None = None
 
 
-class DeviceCredentialBase(BaseModel):
-    device_id: int
-    status: CredentialStatus = CredentialStatus.ACTIVE
-
-
-class DeviceCredentialCreate(DeviceCredentialBase):
-    secret: str = Field(min_length=1, max_length=255)
-
-
-class DeviceCredentialUpdate(BaseModel):
-    secret: Optional[str] =  None
-    status: CredentialStatus | None = None
-    revoked_at: Optional[datetime] = None
-
-
-class DeviceCredentialRead(DeviceCredentialBase):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    created_at: datetime
-    revoked_at: datetime | None = None
-
-
-class DeviceCredentialReadWithSecret(DeviceCredentialRead):
-    secret: str
-
-
 class DeviceCreateSch(BaseModel):
     serial: str
     name: str
     type: str
     client_id: int | None = None
     asset_id: int | None = None
+    communication_protocol: DeviceCommunicationProtocol = DeviceCommunicationProtocol.CHIRPSTACK
+    chirpstack_dev_eui: str | None = None
+    chirpstack_application_id: str | None = None
+    lorawan_class: str | None = None
+    chirpstack_device_profile_id: str | None = None
+
+    @field_validator("chirpstack_dev_eui")
+    @classmethod
+    def normalize_create_chirpstack_dev_eui(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = "".join(value.split()).lower()
+        return normalized or None
+
+    @model_validator(mode="after")
+    def validate_chirpstack_requirements(self):
+        if self.communication_protocol != DeviceCommunicationProtocol.CHIRPSTACK:
+            raise ValueError(
+                "Only CHIRPSTACK devices can be created through this endpoint"
+            )
+        if (
+            self.communication_protocol == DeviceCommunicationProtocol.CHIRPSTACK
+            and not self.chirpstack_dev_eui
+        ):
+            raise ValueError(
+                "chirpstack_dev_eui is required for CHIRPSTACK devices"
+            )
+        return self
 
 
 class ProvisionedDeviceSch(BaseModel):
@@ -126,30 +174,14 @@ class ProvisionedDeviceSch(BaseModel):
     type: str
     communication_protocol: str
     active: bool
-
-
-class ProvisioningMqttSch(BaseModel):
-    host: str | None
-    port: int
-    tls_enabled: bool
-    username: str
-    password: str
-    location_topic: str
-    status_topic: str
-    heartbeat_topic: str
-    commands_topic: str
-    acks_topic: str
-
-
-class ProvisioningSecuritySch(BaseModel):
-    hmac_secret: str
-    algorithm: str = "HMAC-SHA256"
+    chirpstack_dev_eui: str | None = None
+    chirpstack_application_id: str | None = None
+    lorawan_class: str | None = None
+    chirpstack_device_profile_id: str | None = None
 
 
 class DeviceProvisioningResponseSch(BaseModel):
     device: ProvisionedDeviceSch
-    mqtt: ProvisioningMqttSch
-    security: ProvisioningSecuritySch
 
 class DevicesStatsAdminResult(BaseModel):
     all_devices: int
@@ -166,4 +198,9 @@ class DeviceAdminResponse(BaseModel):
     asset_name: str
     active: bool
     state: DeviceState
+    communication_protocol: DeviceCommunicationProtocol | None = None
+    chirpstack_dev_eui: str | None = None
+    chirpstack_application_id: str | None = None
+    lorawan_class: str | None = None
+    chirpstack_device_profile_id: str | None = None
     status: Optional[GeoFenceStatus] = None

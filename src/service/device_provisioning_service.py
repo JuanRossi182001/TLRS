@@ -1,31 +1,15 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.application.security.credential_generator import CredentialGenerator
 from src.models.device import (
     Device,
     DeviceCommunicationProtocol,
     DeviceState,
-    CredentialStatus,
 )
-from src.models.device import DeviceCredential
 
 
 class DeviceProvisioningService:
-    def __init__(
-        self,
-        db: AsyncSession,
-        credential_generator: CredentialGenerator,
-        mqtt_broker_client,
-        mqtt_public_host: str,
-        mqtt_public_port: int,
-        mqtt_tls_enabled: bool,
-    ):
+    def __init__(self, db: AsyncSession):
         self.db = db
-        self.credential_generator = credential_generator
-        self.mqtt_broker_client = mqtt_broker_client
-        self.mqtt_public_host = mqtt_public_host
-        self.mqtt_public_port = mqtt_public_port
-        self.mqtt_tls_enabled = mqtt_tls_enabled
 
     async def provision_device(
         self,
@@ -34,69 +18,35 @@ class DeviceProvisioningService:
         type: str,
         client_id: int | None = None,
         asset_id: int | None = None,
+        communication_protocol: DeviceCommunicationProtocol = DeviceCommunicationProtocol.CHIRPSTACK,
+        chirpstack_dev_eui: str | None = None,
+        chirpstack_application_id: str | None = None,
+        lorawan_class: str | None = None,
+        chirpstack_device_profile_id: str | None = None,
     ) -> dict:
-        mqtt_username = self.credential_generator.build_mqtt_username(serial)
-        mqtt_password = self.credential_generator.generate_mqtt_password()
-        hmac_secret = self.credential_generator.generate_hmac_secret()
+        if communication_protocol != DeviceCommunicationProtocol.CHIRPSTACK:
+            raise ValueError("Only CHIRPSTACK device provisioning is supported")
 
-        location_topic = f"gps/devices/{serial}/location"
-        status_topic = f"gps/devices/{serial}/status"
-        heartbeat_topic = f"gps/devices/{serial}/heartbeat"
-        commands_topic = f"gps/devices/{serial}/commands"
-        acks_topic = f"gps/devices/{serial}/acks"
-
+        if not chirpstack_dev_eui:
+            raise ValueError("chirpstack_dev_eui is required for CHIRPSTACK devices")
         device = Device(
             serial=serial,
             name=name,
             type=type,
             state=DeviceState.OFF,
-            communication_protocol=DeviceCommunicationProtocol.MQTT,
+            communication_protocol=DeviceCommunicationProtocol.CHIRPSTACK,
             client_id=client_id,
             asset_id=asset_id,
             active=True,
+            chirpstack_dev_eui=chirpstack_dev_eui,
+            chirpstack_application_id=chirpstack_application_id,
+            lorawan_class=lorawan_class,
+            chirpstack_device_profile_id=chirpstack_device_profile_id,
         )
 
         self.db.add(device)
-        await self.db.flush()
-
-        credential = DeviceCredential(
-            device_id=device.id_device,
-            secret=hmac_secret,
-            mqtt_username=mqtt_username,
-            mqtt_password_encrypted=self.credential_generator.encrypt_password(mqtt_password),
-            location_topic=location_topic,
-            status_topic=status_topic,
-            heartbeat_topic=heartbeat_topic,
-            commands_topic=commands_topic,
-            acks_topic=acks_topic,
-            status=CredentialStatus.ACTIVE,
-        )
-
-        self.db.add(credential)
-        broker_provisioned = False
-
-        try:
-            await self.mqtt_broker_client.provision_device(
-                mqtt_username=mqtt_username,
-                mqtt_password=mqtt_password,
-                location_topic=location_topic,
-                status_topic=status_topic,
-                heartbeat_topic=heartbeat_topic,
-                commands_topic=commands_topic,
-                acks_topic=acks_topic,
-            )
-            broker_provisioned = True
-
-            await self.db.commit()
-            await self.db.refresh(device)
-
-        except Exception:
-            await self.db.rollback()
-
-            if broker_provisioned:
-                await self._compensate_broker_provisioning(mqtt_username)
-
-            raise
+        await self.db.commit()
+        await self.db.refresh(device)
 
         return {
             "device": {
@@ -106,39 +56,9 @@ class DeviceProvisioningService:
                 "type": device.type,
                 "communication_protocol": device.communication_protocol.value,
                 "active": device.active,
-            },
-            "mqtt": {
-                "host": self.mqtt_public_host,
-                "port": self.mqtt_public_port,
-                "tls_enabled": self.mqtt_tls_enabled,
-                "username": mqtt_username,
-                "password": mqtt_password,
-                "location_topic": location_topic,
-                "status_topic": status_topic,
-                "heartbeat_topic": heartbeat_topic,
-                "commands_topic": commands_topic,
-                "acks_topic": acks_topic,
-            },
-            "security": {
-                "hmac_secret": hmac_secret,
-                "algorithm": "HMAC-SHA256",
+                "chirpstack_dev_eui": device.chirpstack_dev_eui,
+                "chirpstack_application_id": device.chirpstack_application_id,
+                "lorawan_class": device.lorawan_class,
+                "chirpstack_device_profile_id": device.chirpstack_device_profile_id,
             },
         }
-
-    async def _compensate_broker_provisioning(self, mqtt_username: str) -> None:
-        deprovision_device = getattr(
-            self.mqtt_broker_client,
-            "deprovision_device",
-            None,
-        )
-
-        if deprovision_device is None:
-            return
-
-        try:
-            await deprovision_device(mqtt_username=mqtt_username)
-        except Exception as exc:
-            print(
-                "[DEVICE_PROVISIONING] Broker compensation failed "
-                f"for {mqtt_username}: {exc}"
-            )

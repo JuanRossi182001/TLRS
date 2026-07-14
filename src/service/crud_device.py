@@ -1,15 +1,13 @@
 import json
 
 from sqlalchemy import func, select
-from src.models.device import Device, DeviceCredential, DeviceState
+from src.models.device import Device, DeviceState
 from src.models.client import Client
 from src.models.asset import Asset
 from src.models.location import Location
 from src.models.geofence import GeoFenceAssetState
 from src.schemas.device import (
     DeviceCreate,
-    DeviceCredentialCreate,
-    DeviceCredentialUpdate,
     DeviceUserStatsResponse,
     DeviceUpdate,
     DevicesStatsAdminResult
@@ -39,7 +37,11 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
                 Device.communication_protocol,
                 Device.client_id,
                 Device.asset_id,
-                Device.active
+                Device.active,
+                Device.chirpstack_dev_eui,
+                Device.chirpstack_application_id,
+                Device.lorawan_class,
+                Device.chirpstack_device_profile_id,
             )
             .where(
                 Device.client_id == client_id,
@@ -122,6 +124,10 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
                 Device.client_id,
                 Device.asset_id,
                 Device.active,
+                Device.chirpstack_dev_eui,
+                Device.chirpstack_application_id,
+                Device.lorawan_class,
+                Device.chirpstack_device_profile_id,
                 latest_location.c.id_location,
                 latest_location.c.latitude,
                 latest_location.c.longitude,
@@ -218,6 +224,11 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
                 Asset.asset_type.label("asset_name"),
                 Device.active,
                 Device.state,
+                Device.communication_protocol,
+                Device.chirpstack_dev_eui,
+                Device.chirpstack_application_id,
+                Device.lorawan_class,
+                Device.chirpstack_device_profile_id,
                 latest_effective_state.c.status,
             )
             .outerjoin(Client, Device.client_id == Client.id_client)
@@ -265,9 +276,3 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
         await self.db.commit()
         await self.db.refresh(device)
         return device
-
-
-class DeviceCredentialService(
-    CrudBase[DeviceCredential, DeviceCredentialCreate, DeviceCredentialUpdate]
-):
-    model = DeviceCredential

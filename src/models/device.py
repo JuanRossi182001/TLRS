@@ -4,7 +4,6 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, St
 from sqlalchemy import Enum as SqlAlchemyEnum
 from sqlalchemy.orm import Mapped,relationship
 from enum import Enum
-from datetime import datetime
 
 
 class DeviceState(Enum):
@@ -14,13 +13,7 @@ class DeviceState(Enum):
 class DeviceCommunicationProtocol(Enum):
     HTTP = "HTTP"
     MQTT = "MQTT"
-
-class MqttProvider(Enum):
-    EMQX_CLOUD = "EMQX_CLOUD"
-    MOSQUITTO = "MOSQUITTO"
-class CredentialStatus(Enum):
-    ACTIVE = "ACTIVE"
-    REVOKED = "REVOKED"
+    CHIRPSTACK = "CHIRPSTACK"
 
 
 
@@ -44,6 +37,14 @@ class Device(base):
             unique=True,
             postgresql_where=text("deleted = 'N' AND asset_id IS NOT NULL"),
         ),
+        Index(
+            "uq_devices_chirpstack_dev_eui_active",
+            "chirpstack_dev_eui",
+            unique=True,
+            postgresql_where=text(
+                "deleted = 'N' AND chirpstack_dev_eui IS NOT NULL"
+            ),
+        ),
     )
 
     id_device = Column(Integer, primary_key=True)
@@ -51,6 +52,10 @@ class Device(base):
     name = Column(String, nullable=False)
     type = Column(String, nullable=False)
     last_seen_at = Column(DateTime, nullable=True)
+    chirpstack_dev_eui = Column(String, nullable=True)
+    chirpstack_application_id = Column(String, nullable=True)
+    lorawan_class = Column(String, nullable=True)
+    chirpstack_device_profile_id = Column(String, nullable=True)
     deleted = Column(String(1), default="N", nullable=False)
     
     state: Mapped[DeviceState] = Column(
@@ -61,7 +66,7 @@ class Device(base):
 
     communication_protocol: Mapped[DeviceCommunicationProtocol] = Column(
         SqlAlchemyEnum(DeviceCommunicationProtocol),
-        default=DeviceCommunicationProtocol.HTTP,
+        default=DeviceCommunicationProtocol.CHIRPSTACK,
         nullable=False,
     )
 
@@ -72,75 +77,12 @@ class Device(base):
 
     client = relationship("Client", back_populates="devices")
     asset = relationship("Asset", back_populates="devices")
-    device_credentials = relationship(
-        "DeviceCredential",
-        back_populates="device",
-        cascade="all, delete-orphan",
-    )
-    telemetry_messages = relationship(
-        "TelemetryMessage",
-        back_populates="device",
-        cascade="all, delete-orphan",
-    )
     locations = relationship(
         "Location",
         back_populates="device",
         cascade="all, delete-orphan",
     )
-
-
-class DeviceCredential(base):
-    """
-    Represents device authentication material.
-    """
-
-    __tablename__ = "device_credentials"
-    __table_args__ = (
-        Index(
-            "uq_device_credentials_mqtt_username_active",
-            "mqtt_username",
-            unique=True,
-            postgresql_where=text("deleted = 'N' AND mqtt_username IS NOT NULL"),
-        ),
-        Index(
-            "uq_device_credentials_mqtt_password_hash_active",
-            "mqtt_password_hash",
-            unique=True,
-            postgresql_where=text("deleted = 'N' AND mqtt_password_hash IS NOT NULL"),
-        ),
-        Index(
-            "uq_device_credentials_mqtt_password_encrypted_active",
-            "mqtt_password_encrypted",
-            unique=True,
-            postgresql_where=text("deleted = 'N' AND mqtt_password_encrypted IS NOT NULL"),
-        ),
+    chirpstack_events = relationship(
+        "ChirpStackEvent",
+        back_populates="device",
     )
-
-    id = Column(Integer, primary_key=True)
-    device_id = Column(Integer, ForeignKey("devices.id_device"), nullable=False)
-
-    secret = Column(String, nullable=False)
-    
-    mqtt_username = Column(String, nullable=True)
-    mqtt_password_hash = Column(String, nullable=True)
-    mqtt_password_encrypted = Column(String, nullable=True)
-    mqtt_provider: Mapped[MqttProvider] = Column(SqlAlchemyEnum(MqttProvider),default=MqttProvider.EMQX_CLOUD, nullable=True)
-
-    location_topic = Column(String, nullable=True)
-    status_topic = Column(String, nullable=True)
-    heartbeat_topic = Column(String, nullable=True)
-    commands_topic = Column(String, nullable=True)
-    acks_topic = Column(String, nullable=True)
-    
-    deleted = Column(String(1), default="N", nullable=False)
-
-    status: Mapped[CredentialStatus] = Column(
-        SqlAlchemyEnum(CredentialStatus),
-        default=CredentialStatus.ACTIVE,
-        nullable=False,
-    )
-
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    revoked_at = Column(DateTime, nullable=True)
-
-    device = relationship("Device", back_populates="device_credentials")

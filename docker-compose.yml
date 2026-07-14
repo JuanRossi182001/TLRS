@@ -15,21 +15,9 @@ services:
       - .:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
-
-  mqtt-worker:
-    build:
-      context: .
-      dockerfile: dockerfile
-    container_name: gps_mqtt_worker
-    env_file:
-      - .env
-    secrets:
-      - db_connection_url
-      - db_schema_name
-    volumes:
-      - .:/app
-    command: python -m mqtt_worker.main
-    restart: unless-stopped
+    networks:
+      - default
+      - chirpstack-shared
 
   command-dispatcher-worker:
     build:
@@ -45,9 +33,32 @@ services:
       - .:/app
     command: python -m command_dispatcher_worker.main
     restart: unless-stopped
+    networks:
+      - default
+      - chirpstack-shared
+
+  chirpstack-event-worker:
+    build:
+      context: .
+      dockerfile: dockerfile
+    container_name: gps_chirpstack_event_worker
+    env_file:
+      - .env
+    secrets:
+      - db_connection_url
+      - db_schema_name
+    volumes:
+      - .:/app
+    command: python -m chirpstack_event_worker.main
+    restart: unless-stopped
 
 secrets:
   db_connection_url:
     environment: DATABASE_URL
   db_schema_name:
     environment: DB_SCHEMA_NAME
+
+networks:
+  chirpstack-shared:
+    external: true
+    name: ${MANEA_CHIRPSTACK_SHARED_NETWORK:-manea_chirpstack_shared}

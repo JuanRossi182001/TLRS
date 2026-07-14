@@ -1,0 +1,75 @@
+services:
+  chirpstack:
+    image: chirpstack/chirpstack:4
+    restart: unless-stopped
+    command: -c /etc/chirpstack
+    env_file:
+      - ${CHIRPSTACK_ENV_FILE:-.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${CHIRPSTACK_UI_PORT:-8080}:${CHIRPSTACK_UI_PORT:-8080}"
+    volumes:
+      - ./configuration/chirpstack:/etc/chirpstack:ro
+    networks:
+      default:
+      chirpstack-shared:
+        aliases:
+          - chirpstack
+
+  postgres:
+    image: postgres:14-alpine
+    restart: unless-stopped
+    env_file:
+      - ${CHIRPSTACK_ENV_FILE:-.env}
+    environment:
+      POSTGRES_USER: ${CHIRPSTACK_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${CHIRPSTACK_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${CHIRPSTACK_POSTGRES_DB}
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    volumes:
+      - chirpstack_postgres_data:/var/lib/postgresql/data
+      - ./configuration/postgresql/initdb:/docker-entrypoint-initdb.d:ro
+      - ./configuration/postgresql/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    volumes:
+      - chirpstack_redis_data:/data
+      - ./configuration/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+
+volumes:
+  chirpstack_postgres_data:
+  chirpstack_redis_data:
+
+networks:
+  chirpstack-shared:
+    external: true
+    name: ${MANEA_CHIRPSTACK_SHARED_NETWORK:-manea_chirpstack_shared}

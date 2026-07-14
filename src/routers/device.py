@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.application.security.credential_generator import CredentialGenerator
 from src.db.config.connection import get_db
 from src.schemas.user import TokenData  
 from src.schemas.device import (
@@ -15,11 +14,25 @@ from src.utils.validations import validate_user_service_access
 from src.service.crud_user import get_current_user
 from src.service.crud_device import DeviceService
 from src.service.device_provisioning_service import DeviceProvisioningService
-from src.infrastructure.mqtt.emqx_cloud_provisioning_client import EMQXCloudProvisioningClient
-from src.settings import settings
 
 
 router = APIRouter(prefix="/devices", tags=["Devices"])
+
+
+def _device_conflict_message(exc: IntegrityError) -> str:
+    error_text = str(exc.orig) if exc.orig else str(exc)
+
+    constraint_messages = {
+        "uq_devices_serial_active": "Device serial already exists.",
+        "uq_devices_asset_id_active": "Asset already has an active device assigned.",
+        "uq_devices_chirpstack_dev_eui_active": "ChirpStack DevEUI already exists.",
+    }
+
+    for constraint_name, message in constraint_messages.items():
+        if constraint_name in error_text:
+            return message
+
+    return "Device serial, asset or ChirpStack DevEUI already exists."
 
 
 @router.post(
@@ -33,23 +46,7 @@ async def create_device(
     current_user: TokenData = Depends(get_current_user)
 ):
     await validate_user_service_access(current_user, "device:create device with all credentials", db)
-
-    emqx_client = EMQXCloudProvisioningClient(
-        api_base_url=settings.emqx_api_base_url,
-        api_key=settings.emqx_api_key,
-        api_secret=settings.emqx_api_secret,
-        authentication_id=settings.emqx_authentication_id,
-        authorization_enabled=settings.emqx_authorization_enabled,
-    )
-
-    service = DeviceProvisioningService(
-        db=db,
-        credential_generator=CredentialGenerator(),
-        mqtt_broker_client=emqx_client,
-        mqtt_public_host=settings.mqtt_host,
-        mqtt_public_port=settings.mqtt_port,
-        mqtt_tls_enabled=settings.mqtt_tls_enabled,
-    )
+    service = DeviceProvisioningService(db=db)
 
     try:
         return await service.provision_device(
@@ -58,13 +55,18 @@ async def create_device(
             type=payload.type,
             client_id=payload.client_id,
             asset_id=payload.asset_id,
+            communication_protocol=payload.communication_protocol,
+            chirpstack_dev_eui=payload.chirpstack_dev_eui,
+            chirpstack_application_id=payload.chirpstack_application_id,
+            lorawan_class=payload.lorawan_class,
+            chirpstack_device_profile_id=payload.chirpstack_device_profile_id,
         )
 
-    except IntegrityError:
+    except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Device serial or MQTT username already exists.",
+            detail=_device_conflict_message(exc),
         )
 
     except Exception as exc:
