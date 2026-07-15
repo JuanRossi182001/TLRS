@@ -14,6 +14,9 @@ class FakeSession:
     def add(self, value) -> None:
         return None
 
+    async def execute(self, stmt):
+        return None
+
 
 class RoutingEventService(ChirpStackEventService):
     def __init__(self, device, up_event):
@@ -92,6 +95,52 @@ class ChirpStackEventServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.location_id, 77)
         persist_location.assert_awaited_once()
 
+    async def test_fport_10_rejects_application_id_mismatch(self) -> None:
+        service = RoutingEventService(
+            self._build_device(chirpstack_application_id="expected-app"),
+            self._build_up_event(self._location_base64(), 10),
+        )
+        event = self._build_event(application_id="wrong-app")
+
+        with patch(
+            "src.integrations.chirpstack.service.LocationIngestionService.persist_location",
+            AsyncMock(),
+        ) as persist_location:
+            result = await service._process_up_event(
+                "wrong-app",
+                "0102030405060708",
+                {},
+                event,
+            )
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_reason, "APPLICATION_ID_MISMATCH")
+        self.assertFalse(event.processed)
+        persist_location.assert_not_awaited()
+
+    async def test_fport_10_rejects_missing_device_application_id(self) -> None:
+        service = RoutingEventService(
+            self._build_device(chirpstack_application_id=None),
+            self._build_up_event(self._location_base64(), 10),
+        )
+        event = self._build_event()
+
+        with patch(
+            "src.integrations.chirpstack.service.LocationIngestionService.persist_location",
+            AsyncMock(),
+        ) as persist_location:
+            result = await service._process_up_event(
+                "app",
+                "0102030405060708",
+                {},
+                event,
+            )
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_reason, "DEVICE_APPLICATION_ID_MISSING")
+        self.assertFalse(event.processed)
+        persist_location.assert_not_awaited()
+
     async def test_fport_11_status_does_not_create_location(self) -> None:
         service = RoutingEventService(self._build_device(), self._build_up_event("AQJXDnQBAQI=", 11))
         event = self._build_event()
@@ -102,7 +151,45 @@ class ChirpStackEventServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.processed_kind, "status")
         self.assertTrue(event.processed)
 
-    def _build_device(self) -> Device:
+    async def test_txack_rejects_application_id_mismatch(self) -> None:
+        service = RoutingEventService(self._build_device(chirpstack_application_id="expected-app"), None)
+        event = self._build_event(event_type="txack", application_id="wrong-app")
+
+        with patch(
+            "src.integrations.chirpstack.service.ChirpStackTxAckEvent.model_validate",
+            side_effect=AssertionError("txack payload should not be parsed"),
+        ):
+            result = await service._process_txack_event(
+                "wrong-app",
+                "0102030405060708",
+                {},
+                event,
+            )
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_reason, "APPLICATION_ID_MISMATCH")
+        self.assertFalse(event.processed)
+
+    async def test_ack_rejects_application_id_mismatch(self) -> None:
+        service = RoutingEventService(self._build_device(chirpstack_application_id="expected-app"), None)
+        event = self._build_event(event_type="ack", application_id="wrong-app")
+
+        with patch(
+            "src.integrations.chirpstack.service.ChirpStackNetworkAckEvent.model_validate",
+            side_effect=AssertionError("ack payload should not be parsed"),
+        ):
+            result = await service._process_network_ack_event(
+                "wrong-app",
+                "0102030405060708",
+                {},
+                event,
+            )
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_reason, "APPLICATION_ID_MISMATCH")
+        self.assertFalse(event.processed)
+
+    def _build_device(self, chirpstack_application_id: str | None = "app") -> Device:
         return Device(
             id_device=26,
             serial="COLLAR-026",
@@ -113,15 +200,15 @@ class ChirpStackEventServiceTests(unittest.IsolatedAsyncioTestCase):
             state=DeviceState.ON,
             communication_protocol=DeviceCommunicationProtocol.CHIRPSTACK,
             chirpstack_dev_eui="0102030405060708",
-            chirpstack_application_id="app",
+            chirpstack_application_id=chirpstack_application_id,
         )
 
-    def _build_event(self) -> ChirpStackEvent:
+    def _build_event(self, event_type: str = "up", application_id: str = "app") -> ChirpStackEvent:
         return ChirpStackEvent(
-            event_type="up",
-            application_id="app",
+            event_type=event_type,
+            application_id=application_id,
             dev_eui="0102030405060708",
-            topic="application/app/device/0102030405060708/event/up",
+            topic=f"application/{application_id}/device/0102030405060708/event/{event_type}",
             payload={},
             processed=False,
             error_message=None,

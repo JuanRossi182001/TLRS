@@ -50,6 +50,8 @@ class ChirpStackHandleResult:
 
 class ChirpStackEventService:
     DEVICE_UPLINK_LOCK_NAMESPACE = 6100
+    DEVICE_APPLICATION_ID_MISSING = "DEVICE_APPLICATION_ID_MISSING"
+    APPLICATION_ID_MISMATCH = "APPLICATION_ID_MISMATCH"
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -103,13 +105,13 @@ class ChirpStackEventService:
             if topic_info.event_type == "up":
                 result = await self._process_up_event(topic_info.application_id, topic_info.dev_eui, payload, event)
             elif topic_info.event_type == "join":
-                result = await self._process_join_event(topic_info.dev_eui, event)
+                result = await self._process_join_event(topic_info.application_id, topic_info.dev_eui, event)
             elif topic_info.event_type == "log":
-                result = await self._process_log_event(topic_info.dev_eui, event)
+                result = await self._process_log_event(topic_info.application_id, topic_info.dev_eui, event)
             elif topic_info.event_type == "txack":
-                result = await self._process_txack_event(topic_info.dev_eui, payload, event)
+                result = await self._process_txack_event(topic_info.application_id, topic_info.dev_eui, payload, event)
             elif topic_info.event_type == "ack":
-                result = await self._process_network_ack_event(topic_info.dev_eui, payload, event)
+                result = await self._process_network_ack_event(topic_info.application_id, topic_info.dev_eui, payload, event)
             else:
                 event.error_message = f"Unsupported ChirpStack event type: {topic_info.event_type}"
                 logger.warning(
@@ -160,12 +162,28 @@ class ChirpStackEventService:
                 failure_reason=event.error_message,
             )
 
+        application_id_error = self._validate_device_application_id(device, application_id)
+        if application_id_error is not None:
+            event.device_id = device.id_device
+            event.error_message = application_id_error
+            logger.warning(
+                "Rejected ChirpStack up event due to application_id validation. device_id=%s dev_eui=%s application_id=%s reason=%s",
+                device.id_device,
+                dev_eui,
+                application_id,
+                application_id_error,
+            )
+            return ChirpStackHandleResult(
+                success=False,
+                event=event,
+                processed_kind="up",
+                device_id=device.id_device,
+                failure_reason=event.error_message,
+            )
+
         up_event = self._validate_up_event(payload, dev_eui)
         event.device_id = device.id_device
         await self._acquire_device_uplink_lock(device.id_device)
-
-        if device.chirpstack_application_id is None:
-            device.chirpstack_application_id = application_id
 
         if device.chirpstack_device_profile_id is None:
             device.chirpstack_device_profile_id = up_event.deviceInfo.deviceProfileId
@@ -230,11 +248,30 @@ class ChirpStackEventService:
 
     async def _process_join_event(
         self,
+        application_id: str,
         dev_eui: str,
         event: ChirpStackEvent,
     ) -> ChirpStackHandleResult:
         device = await self._get_device(dev_eui)
         if device is not None:
+            application_id_error = self._validate_device_application_id(device, application_id)
+            if application_id_error is not None:
+                event.device_id = device.id_device
+                event.error_message = application_id_error
+                logger.warning(
+                    "Rejected ChirpStack join event due to application_id validation. device_id=%s dev_eui=%s application_id=%s reason=%s",
+                    device.id_device,
+                    dev_eui,
+                    application_id,
+                    application_id_error,
+                )
+                return ChirpStackHandleResult(
+                    success=False,
+                    event=event,
+                    processed_kind="join",
+                    device_id=device.id_device,
+                    failure_reason=event.error_message,
+                )
             device.last_seen_at = self._utcnow()
             event.device_id = device.id_device
             self.db.add(device)
@@ -252,11 +289,30 @@ class ChirpStackEventService:
 
     async def _process_log_event(
         self,
+        application_id: str,
         dev_eui: str,
         event: ChirpStackEvent,
     ) -> ChirpStackHandleResult:
         device = await self._get_device(dev_eui)
         if device is not None:
+            application_id_error = self._validate_device_application_id(device, application_id)
+            if application_id_error is not None:
+                event.device_id = device.id_device
+                event.error_message = application_id_error
+                logger.warning(
+                    "Rejected ChirpStack log event due to application_id validation. device_id=%s dev_eui=%s application_id=%s reason=%s",
+                    device.id_device,
+                    dev_eui,
+                    application_id,
+                    application_id_error,
+                )
+                return ChirpStackHandleResult(
+                    success=False,
+                    event=event,
+                    processed_kind="log",
+                    device_id=device.id_device,
+                    failure_reason=event.error_message,
+                )
             event.device_id = device.id_device
 
         event.processed = True
@@ -360,6 +416,7 @@ class ChirpStackEventService:
 
     async def _process_txack_event(
         self,
+        application_id: str,
         dev_eui: str,
         payload: dict,
         event: ChirpStackEvent,
@@ -371,6 +428,25 @@ class ChirpStackEventService:
                 success=False,
                 event=event,
                 processed_kind="txack",
+                failure_reason=event.error_message,
+            )
+
+        application_id_error = self._validate_device_application_id(device, application_id)
+        if application_id_error is not None:
+            event.device_id = device.id_device
+            event.error_message = application_id_error
+            logger.warning(
+                "Rejected ChirpStack txack event due to application_id validation. device_id=%s dev_eui=%s application_id=%s reason=%s",
+                device.id_device,
+                dev_eui,
+                application_id,
+                application_id_error,
+            )
+            return ChirpStackHandleResult(
+                success=False,
+                event=event,
+                processed_kind="txack",
+                device_id=device.id_device,
                 failure_reason=event.error_message,
             )
 
@@ -446,6 +522,7 @@ class ChirpStackEventService:
 
     async def _process_network_ack_event(
         self,
+        application_id: str,
         dev_eui: str,
         payload: dict,
         event: ChirpStackEvent,
@@ -457,6 +534,25 @@ class ChirpStackEventService:
                 success=False,
                 event=event,
                 processed_kind="ack",
+                failure_reason=event.error_message,
+            )
+
+        application_id_error = self._validate_device_application_id(device, application_id)
+        if application_id_error is not None:
+            event.device_id = device.id_device
+            event.error_message = application_id_error
+            logger.warning(
+                "Rejected ChirpStack ack event due to application_id validation. device_id=%s dev_eui=%s application_id=%s reason=%s",
+                device.id_device,
+                dev_eui,
+                application_id,
+                application_id_error,
+            )
+            return ChirpStackHandleResult(
+                success=False,
+                event=event,
+                processed_kind="ack",
+                device_id=device.id_device,
                 failure_reason=event.error_message,
             )
 
@@ -529,6 +625,22 @@ class ChirpStackEventService:
             return up_event
         except ValidationError as exc:
             raise ValueError(f"Invalid ChirpStack up payload: {exc}") from exc
+
+    def _validate_device_application_id(
+        self,
+        device: Device,
+        application_id: str,
+    ) -> str | None:
+        expected_application_id = (device.chirpstack_application_id or "").strip()
+        received_application_id = application_id.strip()
+
+        if not expected_application_id:
+            return self.DEVICE_APPLICATION_ID_MISSING
+
+        if expected_application_id != received_application_id:
+            return self.APPLICATION_ID_MISMATCH
+
+        return None
 
     async def _event_exists(self, deduplication_id: str) -> bool:
         stmt = select(ChirpStackEvent.id).where(

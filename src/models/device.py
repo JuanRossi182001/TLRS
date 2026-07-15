@@ -1,9 +1,21 @@
+from enum import Enum
+
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    text,
+)
+from sqlalchemy import Enum as SqlAlchemyEnum
+from sqlalchemy.orm import Mapped, relationship
 
 from src.db.config.config import base
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, text
-from sqlalchemy import Enum as SqlAlchemyEnum
-from sqlalchemy.orm import Mapped,relationship
-from enum import Enum
 
 
 class DeviceState(Enum):
@@ -16,6 +28,13 @@ class DeviceCommunicationProtocol(Enum):
     CHIRPSTACK = "CHIRPSTACK"
 
 
+class DeviceProvisioningStatus(str, Enum):
+    NOT_PROVISIONED = "NOT_PROVISIONED"
+    PENDING = "PENDING"
+    PROVISIONED = "PROVISIONED"
+    FAILED = "FAILED"
+
+
 
 class Device(base):
     """
@@ -25,6 +44,10 @@ class Device(base):
 
     __tablename__ = "devices"
     __table_args__ = (
+        CheckConstraint(
+            "communication_protocol != 'CHIRPSTACK' OR (chirpstack_application_id IS NOT NULL AND btrim(chirpstack_application_id) <> '')",
+            name="ck_devices_chirpstack_requires_application_id",
+        ),
         Index(
             "uq_devices_serial_active",
             "serial",
@@ -53,9 +76,19 @@ class Device(base):
     type = Column(String, nullable=False)
     last_seen_at = Column(DateTime, nullable=True)
     chirpstack_dev_eui = Column(String, nullable=True)
+    join_eui = Column(String, nullable=True)
     chirpstack_application_id = Column(String, nullable=True)
     lorawan_class = Column(String, nullable=True)
     chirpstack_device_profile_id = Column(String, nullable=True)
+    provisioning_status = Column(
+        String,
+        nullable=False,
+        default=DeviceProvisioningStatus.NOT_PROVISIONED.value,
+        server_default=DeviceProvisioningStatus.NOT_PROVISIONED.value,
+    )
+    provisioned_at = Column(DateTime, nullable=True)
+    provisioning_error = Column(Text, nullable=True)
+    app_key_last4 = Column(String(4), nullable=True)
     deleted = Column(String(1), default="N", nullable=False)
     
     state: Mapped[DeviceState] = Column(

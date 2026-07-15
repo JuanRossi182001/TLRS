@@ -3,20 +3,44 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.config.connection import get_db
+from src.integrations.chirpstack.api_client import (
+    ChirpStackAlreadyExistsError,
+    ChirpStackApiConfigurationError,
+    ChirpStackApiPermissionDeniedError,
+    ChirpStackApiRequestError,
+    ChirpStackAuthError,
+    ChirpStackNotFoundError,
+    ChirpStackUnavailableError,
+    ChirpStackValidationError,
+)
 from src.schemas.user import TokenData  
 from src.schemas.device import (
-    DeviceCreateSch,
-    DeviceProvisioningResponseSch,
+    ChirpStackDeviceCreate,
     DeviceLastLocation,
     DevicePaginatedResponse,
+    ChirpStackProvisioningRead,
+    ChirpStackRetryProvisioningRequest,
 )
 from src.utils.validations import validate_user_service_access
 from src.service.crud_user import get_current_user
 from src.service.crud_device import DeviceService
-from src.service.device_provisioning_service import DeviceProvisioningService
+from src.service.device_provisioning_service import (
+    DeviceProvisioningConflictError,
+    DeviceProvisioningError,
+    DeviceProvisioningNotFoundError,
+    DeviceProvisioningService,
+)
 
 
 router = APIRouter(prefix="/devices", tags=["Devices"])
+
+
+def _require_admin_user(current_user: TokenData) -> None:
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin users can manage ChirpStack provisioning.",
+        )
 
 
 def _device_conflict_message(exc: IntegrityError) -> str:
@@ -38,14 +62,14 @@ def _device_conflict_message(exc: IntegrityError) -> str:
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,
-    response_model=DeviceProvisioningResponseSch,
+    response_model=ChirpStackProvisioningRead,
 )
 async def create_device(
-    payload: DeviceCreateSch,
+    payload: ChirpStackDeviceCreate,
     db: AsyncSession = Depends(get_db),
     current_user: TokenData = Depends(get_current_user)
 ):
-    await validate_user_service_access(current_user, "device:create device with all credentials", db)
+    _require_admin_user(current_user)
     service = DeviceProvisioningService(db=db)
 
     try:
@@ -53,13 +77,16 @@ async def create_device(
             serial=payload.serial,
             name=payload.name,
             type=payload.type,
+            dev_eui=payload.dev_eui,
+            join_eui=payload.join_eui,
+            app_key=payload.app_key,
             client_id=payload.client_id,
             asset_id=payload.asset_id,
             communication_protocol=payload.communication_protocol,
-            chirpstack_dev_eui=payload.chirpstack_dev_eui,
             chirpstack_application_id=payload.chirpstack_application_id,
-            lorawan_class=payload.lorawan_class,
             chirpstack_device_profile_id=payload.chirpstack_device_profile_id,
+            description=payload.description,
+            is_disabled=payload.is_disabled,
         )
 
     except IntegrityError as exc:
@@ -69,10 +96,112 @@ async def create_device(
             detail=_device_conflict_message(exc),
         )
 
-    except Exception as exc:
-        await db.rollback()
+    except DeviceProvisioningConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
+
+    except DeviceProvisioningError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+    except ChirpStackUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
+
+    except (
+        ChirpStackAuthError,
+        ChirpStackApiConfigurationError,
+        ChirpStackApiPermissionDeniedError,
+        ChirpStackValidationError,
+        ChirpStackApiRequestError,
+        ChirpStackNotFoundError,
+        ChirpStackAlreadyExistsError,
+    ) as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        )
+
+
+@router.post(
+    "/{id_device}/retry-provisioning",
+    status_code=status.HTTP_200_OK,
+    response_model=ChirpStackProvisioningRead,
+)
+async def retry_provisioning(
+    id_device: int,
+    payload: ChirpStackRetryProvisioningRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
+    _require_admin_user(current_user)
+    service = DeviceProvisioningService(db=db)
+
+    try:
+        return await service.retry_provisioning(
+            device_id=id_device,
+            app_key=payload.app_key,
+        )
+    except DeviceProvisioningNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
+    except DeviceProvisioningConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
+    except DeviceProvisioningError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except ChirpStackUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
+    except (
+        ChirpStackAuthError,
+        ChirpStackApiConfigurationError,
+        ChirpStackApiPermissionDeniedError,
+        ChirpStackValidationError,
+        ChirpStackApiRequestError,
+        ChirpStackNotFoundError,
+        ChirpStackAlreadyExistsError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        )
+
+
+@router.get(
+    "/{id_device}/provisioning",
+    status_code=status.HTTP_200_OK,
+    response_model=ChirpStackProvisioningRead,
+)
+async def get_device_provisioning(
+    id_device: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
+    _require_admin_user(current_user)
+    service = DeviceProvisioningService(db=db)
+
+    try:
+        return await service.get_provisioning(id_device)
+    except DeviceProvisioningNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         )
 

@@ -117,7 +117,14 @@ async def update_device(
     await validate_user_service_access(current_user, "admin:update device", db)
     device_service = DeviceService(db)
 
-    device = await device_service.update_device(device_id, payload)
+    try:
+        device = await device_service.update_device(device_id, payload)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
     if device is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

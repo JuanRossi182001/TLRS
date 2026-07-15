@@ -1,7 +1,7 @@
 import json
 
 from sqlalchemy import func, select
-from src.models.device import Device, DeviceState
+from src.models.device import Device, DeviceCommunicationProtocol, DeviceState
 from src.models.client import Client
 from src.models.asset import Asset
 from src.models.location import Location
@@ -251,7 +251,32 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
         if device is None:
             return None
 
+        if self._chirpstack_application_id_would_be_missing(device, obj_in):
+            raise ValueError(
+                "chirpstack_application_id is required for CHIRPSTACK devices"
+            )
+
         return await self.update(device, obj_in)
+
+    def _chirpstack_application_id_would_be_missing(
+        self,
+        device: Device,
+        obj_in: DeviceUpdate,
+    ) -> bool:
+        resolved_protocol = (
+            obj_in.communication_protocol
+            if "communication_protocol" in obj_in.model_fields_set
+            else device.communication_protocol
+        )
+        if resolved_protocol != DeviceCommunicationProtocol.CHIRPSTACK:
+            return False
+
+        resolved_application_id = (
+            obj_in.chirpstack_application_id
+            if "chirpstack_application_id" in obj_in.model_fields_set
+            else device.chirpstack_application_id
+        )
+        return not resolved_application_id
 
     async def deactivate_device(self, device_id: int) -> Device | None:
         device = await self.get(device_id)

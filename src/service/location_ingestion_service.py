@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.application.telemetry.normalized_telemetry import NormalizedTelemetry
 from src.models.device import Device, DeviceState
 from src.models.location import Location
+from src.service.geofence_evaluation_service import GeoFenceEvaluationService
 
 
 class LocationIngestionService:
@@ -38,8 +39,6 @@ class LocationIngestionService:
         device.state = DeviceState.ON
         device.last_seen_at = received_at
         self.db.add(device)
-
-        from src.service.geofence_evaluation_service import GeoFenceEvaluationService
 
         evaluation_service = GeoFenceEvaluationService(self.db)
         await evaluation_service.evaluate_location(device.id_device, location.id_location)

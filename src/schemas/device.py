@@ -1,11 +1,29 @@
+import re
 from datetime import datetime
 from typing import Optional
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from src.models.geofence import GeoFenceStatus
 from src.models.device import (
     DeviceCommunicationProtocol,
+    DeviceProvisioningStatus,
     DeviceState,
 )
+from src.models.geofence import GeoFenceStatus
+
+
+HEX_16_RE = re.compile(r"^[0-9a-f]{16}$")
+HEX_32_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _hex_error_message(field_name: str, length: int) -> str:
+    return f"{field_name} must be a valid {length}-character hex string"
 
 class GeoJSONPoint(BaseModel):
     type: str = "Point"
@@ -86,6 +104,14 @@ class DeviceCreate(BaseModel):
         normalized = "".join(value.split()).lower()
         return normalized or None
 
+    @field_validator("chirpstack_application_id")
+    @classmethod
+    def normalize_chirpstack_application_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
     @model_validator(mode="after")
     def validate_chirpstack_requirements(self):
         if self.communication_protocol != DeviceCommunicationProtocol.CHIRPSTACK:
@@ -98,6 +124,13 @@ class DeviceCreate(BaseModel):
         ):
             raise ValueError(
                 "chirpstack_dev_eui is required for CHIRPSTACK devices"
+            )
+        if (
+            self.communication_protocol == DeviceCommunicationProtocol.CHIRPSTACK
+            and not self.chirpstack_application_id
+        ):
+            raise ValueError(
+                "chirpstack_application_id is required for CHIRPSTACK devices"
             )
         return self
 
@@ -124,6 +157,14 @@ class DeviceUpdate(BaseModel):
         normalized = "".join(value.split()).lower()
         return normalized or None
 
+    @field_validator("chirpstack_application_id")
+    @classmethod
+    def normalize_updated_chirpstack_application_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
 class DeviceRead(DeviceBase):
     model_config = ConfigDict(from_attributes=True)
 
@@ -131,25 +172,65 @@ class DeviceRead(DeviceBase):
     last_seen_at: datetime | None = None
 
 
-class DeviceCreateSch(BaseModel):
+class ChirpStackDeviceCreate(BaseModel):
     serial: str
     name: str
     type: str
     client_id: int | None = None
     asset_id: int | None = None
     communication_protocol: DeviceCommunicationProtocol = DeviceCommunicationProtocol.CHIRPSTACK
-    chirpstack_dev_eui: str | None = None
+    dev_eui: str
+    join_eui: str
+    app_key: str
     chirpstack_application_id: str | None = None
-    lorawan_class: str | None = None
     chirpstack_device_profile_id: str | None = None
+    description: str | None = None
+    is_disabled: bool = False
 
-    @field_validator("chirpstack_dev_eui")
+    @field_validator("dev_eui")
     @classmethod
-    def normalize_create_chirpstack_dev_eui(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
+    def normalize_dev_eui(cls, value: str) -> str:
         normalized = "".join(value.split()).lower()
-        return normalized or None
+        if not normalized:
+            raise ValueError("dev_eui is required")
+        if not HEX_16_RE.fullmatch(normalized):
+            raise ValueError(_hex_error_message("dev_eui", 16))
+        return normalized
+
+    @field_validator("join_eui")
+    @classmethod
+    def normalize_join_eui(cls, value: str) -> str:
+        normalized = "".join(value.split()).lower()
+        if not normalized:
+            raise ValueError("join_eui is required")
+        if not HEX_16_RE.fullmatch(normalized):
+            raise ValueError(_hex_error_message("join_eui", 16))
+        return normalized
+
+    @field_validator("app_key")
+    @classmethod
+    def normalize_app_key(cls, value: str) -> str:
+        normalized = "".join(value.split()).lower()
+        if not normalized:
+            raise ValueError("app_key is required")
+        if not HEX_32_RE.fullmatch(normalized):
+            raise ValueError(_hex_error_message("app_key", 32))
+        return normalized
+
+    @field_validator("chirpstack_application_id")
+    @classmethod
+    def normalize_application_id(cls, value: str | None) -> str | None:
+        return _normalize_optional_text(value)
+
+    @field_validator("chirpstack_device_profile_id")
+    @classmethod
+    def normalize_device_profile_id(cls, value: str | None) -> str | None:
+        return _normalize_optional_text(value)
+
+    @field_validator("description")
+    @classmethod
+    def normalize_description(cls, value: str | None) -> str | None:
+        return _normalize_optional_text(value)
 
     @model_validator(mode="after")
     def validate_chirpstack_requirements(self):
@@ -159,12 +240,23 @@ class DeviceCreateSch(BaseModel):
             )
         if (
             self.communication_protocol == DeviceCommunicationProtocol.CHIRPSTACK
-            and not self.chirpstack_dev_eui
+            and not self.chirpstack_application_id
         ):
             raise ValueError(
-                "chirpstack_dev_eui is required for CHIRPSTACK devices"
+                "chirpstack_application_id is required for CHIRPSTACK devices"
+            )
+        if (
+            self.communication_protocol == DeviceCommunicationProtocol.CHIRPSTACK
+            and not self.chirpstack_device_profile_id
+        ):
+            raise ValueError(
+                "chirpstack_device_profile_id is required for CHIRPSTACK devices"
             )
         return self
+
+
+class DeviceCreateSch(ChirpStackDeviceCreate):
+    pass
 
 
 class ProvisionedDeviceSch(BaseModel):
@@ -182,6 +274,35 @@ class ProvisionedDeviceSch(BaseModel):
 
 class DeviceProvisioningResponseSch(BaseModel):
     device: ProvisionedDeviceSch
+
+
+class ChirpStackRetryProvisioningRequest(BaseModel):
+    app_key: str | None = None
+
+    @field_validator("app_key")
+    @classmethod
+    def normalize_retry_app_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = "".join(value.split()).lower()
+        if not normalized:
+            return None
+        if not HEX_32_RE.fullmatch(normalized):
+            raise ValueError(_hex_error_message("app_key", 32))
+        return normalized
+
+
+class ChirpStackProvisioningRead(BaseModel):
+    id_device: int
+    serial: str
+    dev_eui: str | None = None
+    join_eui: str | None = None
+    chirpstack_application_id: str | None = None
+    chirpstack_device_profile_id: str | None = None
+    provisioning_status: DeviceProvisioningStatus
+    provisioned_at: datetime | None = None
+    provisioning_error: str | None = None
+    app_key_last4: str | None = None
 
 class DevicesStatsAdminResult(BaseModel):
     all_devices: int
