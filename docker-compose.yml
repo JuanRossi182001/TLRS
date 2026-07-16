@@ -18,6 +18,9 @@ services:
     networks:
       - default
       - chirpstack-shared
+    depends_on:
+      redis:
+        condition: service_healthy
 
   command-dispatcher-worker:
     build:
@@ -51,6 +54,24 @@ services:
       - .:/app
     command: python -m chirpstack_event_worker.main
     restart: unless-stopped
+    networks:
+      - default
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: manea_redis
+    restart: unless-stopped
+    command: redis-server --appendonly no
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 secrets:
   db_connection_url:

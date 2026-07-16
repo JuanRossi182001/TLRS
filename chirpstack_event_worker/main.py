@@ -7,8 +7,10 @@ from typing import Any
 
 import src.models  # noqa: F401 - registers SQLAlchemy models before mapper configuration
 from paho.mqtt.client import CallbackAPIVersion, Client, MQTTMessage
+from redis.exceptions import RedisError
 
 from src.db.config.config import sessionlocal
+from src.infrastructure.redis.client import close_redis_client
 from src.integrations.chirpstack.mqtt_topics import (
     ChirpStackTopicParseError,
     parse_chirpstack_event_topic,
@@ -54,6 +56,10 @@ class ChirpStackEventWorker:
         finally:
             self.client.loop_stop()
             self.client.disconnect()
+            try:
+                await close_redis_client()
+            except RedisError as exc:
+                logger.warning("Failed to close Redis client. error=%s", exc)
 
     def stop(self) -> None:
         self.stop_event.set()

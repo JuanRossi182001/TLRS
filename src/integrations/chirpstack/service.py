@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from pydantic import ValidationError
+from redis.exceptions import RedisError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,11 +25,18 @@ from src.integrations.chirpstack.schemas import (
     ChirpStackTxAckEvent,
     ChirpStackUpEvent,
 )
+from src.models.asset import Asset
 from src.models.chirpstack_event import ChirpStackEvent
 from src.models.device import Device, DeviceState
 from src.models.device_command import DeviceCommand, DeviceCommandStatus
+from src.models.location import Location
+from src.schemas.realtime_location import RealtimeLocationData
 from src.service.device_command_ack_service import DeviceCommandAckService
 from src.service.location_ingestion_service import LocationIngestionService
+from src.service.realtime_location_publisher import (
+    LOCATION_CHANNEL,
+    publish_location_updated,
+)
 from src.schemas.device_command_ack import DeviceCommandAckPayload
 
 
@@ -46,6 +54,7 @@ class ChirpStackHandleResult:
     command_status: str | None = None
     command_status_changed: bool = False
     failure_reason: str | None = None
+    realtime_location_data: RealtimeLocationData | None = None
 
 
 class ChirpStackEventService:
@@ -129,6 +138,7 @@ class ChirpStackEventService:
             self.db.add(event)
             await self.db.commit()
             result.event = event
+            await self._publish_realtime_location_event(result)
             return result
         except Exception as exc:
             await self.db.rollback()
@@ -212,6 +222,7 @@ class ChirpStackEventService:
             normalized_telemetry=normalized_telemetry,
             received_at=self._utcnow(),
         )
+        realtime_location_data = await self._build_realtime_location_data(device, location)
 
         event.processed = True
         event.error_message = None
@@ -223,6 +234,7 @@ class ChirpStackEventService:
             processed_kind="location",
             device_id=device.id_device,
             location_id=location.id_location if location else None,
+            realtime_location_data=realtime_location_data,
         )
 
     async def _process_status_up_event(
@@ -696,6 +708,89 @@ class ChirpStackEventService:
             )
         )
         await self.db.execute(stmt)
+
+    async def _publish_realtime_location_event(
+        self,
+        result: ChirpStackHandleResult,
+    ) -> None:
+        realtime_location_data = result.realtime_location_data
+        if not result.success or result.processed_kind != "location" or realtime_location_data is None:
+            return
+
+        try:
+            subscribers_count = await publish_location_updated(
+                location_id=realtime_location_data.location_id,
+                client_id=realtime_location_data.client_id,
+                device_id=realtime_location_data.device_id,
+                device_serial=realtime_location_data.device_serial,
+                latitude=realtime_location_data.latitude,
+                longitude=realtime_location_data.longitude,
+                altitude=realtime_location_data.altitude,
+                accuracy=realtime_location_data.accuracy,
+                recorded_at=realtime_location_data.recorded_at,
+            )
+        except RedisError as exc:
+            logger.exception(
+                "Realtime location publish failed. channel=%s location_id=%s device_id=%s device_serial=%s client_id=%s error=%s",
+                LOCATION_CHANNEL,
+                realtime_location_data.location_id,
+                realtime_location_data.device_id,
+                realtime_location_data.device_serial,
+                realtime_location_data.client_id,
+                exc,
+            )
+            return
+
+        logger.info(
+            "Realtime location published. channel=%s location_id=%s device_id=%s device_serial=%s client_id=%s subscribers_count=%s",
+            LOCATION_CHANNEL,
+            realtime_location_data.location_id,
+            realtime_location_data.device_id,
+            realtime_location_data.device_serial,
+            realtime_location_data.client_id,
+            subscribers_count,
+        )
+
+    async def _build_realtime_location_data(
+        self,
+        device: Device,
+        location: Location,
+    ) -> RealtimeLocationData | None:
+        client_id = await self._resolve_device_client_id(device)
+        if client_id is None:
+            logger.warning(
+                "Realtime location publish skipped due to missing client ownership. location_id=%s device_id=%s device_serial=%s",
+                location.id_location,
+                device.id_device,
+                device.serial,
+            )
+            return None
+
+        return RealtimeLocationData(
+            location_id=location.id_location,
+            client_id=client_id,
+            device_id=device.id_device,
+            device_serial=device.serial,
+            latitude=location.latitude,
+            longitude=location.longitude,
+            altitude=location.altitude,
+            accuracy=location.accuracy,
+            recorded_at=location.device_timestamp or location.received_at,
+        )
+
+    async def _resolve_device_client_id(self, device: Device) -> int | None:
+        if device.client_id is not None:
+            return device.client_id
+
+        if device.asset_id is None:
+            return None
+
+        stmt = select(Asset.client_id).where(
+            Asset.id_asset == device.asset_id,
+            Asset.deleted == "N",
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def _mark_event_error(self, event_id: int, error_message: str) -> None:
         event = await self._get_event(event_id)

@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     db_connection_url: str | None = None
     database_url: str | None = None
     db_schema_name: str = "public"
+    redis_url: str = "redis://redis:6379/0"
 
     mqtt_host: str 
     mqtt_port: int
