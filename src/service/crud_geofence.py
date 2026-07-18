@@ -3,10 +3,10 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from geoalchemy2.elements import WKTElement
-from sqlalchemy import func, select
+from sqlalchemy import func, select, union
 
 from src.models.asset import Asset
-from src.models.asset_group import AssetGroup, GeoFenceAssetGroup
+from src.models.asset_group import AssetGroup, AssetGroupMember, GeoFenceAssetGroup
 from src.models.device import Device
 from src.models.geofence import FenceEventType, GeoFence, GeoFenceAssignment, GeoFenceEvent
 from src.schemas.geofence import (
@@ -482,12 +482,45 @@ class GeoFenceService(CrudBase[GeoFence, GeoFenceCreate, GeoFenceUpdate]):
         self,
         geofence_id: int,
     ) -> list[dict[str, Any]]:
-        membership_service = GeofenceMembershipService(self.db)
-        effective_asset_ids = await membership_service.get_effective_asset_ids_for_geofence(
-            geofence_id
+        direct_assets = (
+            select(
+                GeoFenceAssignment.asset_id.label("asset_id"),
+            )
+            .join(Asset, Asset.id_asset == GeoFenceAssignment.asset_id)
+            .where(
+                GeoFenceAssignment.fence_id == geofence_id,
+                GeoFenceAssignment.deleted == "N",
+                GeoFenceAssignment.active.is_(True),
+                Asset.deleted == "N",
+            )
         )
-        if not effective_asset_ids:
-            return []
+
+        group_assets = (
+            select(
+                AssetGroupMember.asset_id.label("asset_id"),
+            )
+            .select_from(GeoFenceAssetGroup)
+            .join(
+                AssetGroup,
+                AssetGroup.id_asset_group == GeoFenceAssetGroup.asset_group_id,
+            )
+            .join(
+                AssetGroupMember,
+                AssetGroupMember.asset_group_id == AssetGroup.id_asset_group,
+            )
+            .join(Asset, Asset.id_asset == AssetGroupMember.asset_id)
+            .where(
+                GeoFenceAssetGroup.geofence_id == geofence_id,
+                GeoFenceAssetGroup.deleted == "N",
+                GeoFenceAssetGroup.active.is_(True),
+                AssetGroup.deleted == "N",
+                AssetGroup.active.is_(True),
+                AssetGroupMember.deleted == "N",
+                Asset.deleted == "N",
+            )
+        )
+
+        effective_asset_ids = union(direct_assets, group_assets).subquery()
 
         result = await self.db.execute(
             select(
@@ -496,13 +529,17 @@ class GeoFenceService(CrudBase[GeoFence, GeoFenceCreate, GeoFenceUpdate]):
                 Asset.asset_type,
                 Asset.serial.label("asset_serial"),
             )
-            .where(
-                Asset.id_asset.in_(effective_asset_ids),
-                Asset.deleted == "N",
+            .join(
+                effective_asset_ids,
+                effective_asset_ids.c.asset_id == Asset.id_asset,
             )
             .order_by(Asset.id_asset)
         )
-        return list(result.mappings().all())
+        effective_assets = list(result.mappings().all())
+        if not effective_assets:
+            return []
+
+        return effective_assets
 
     def _geofence_select(self):
         return select(

@@ -47,6 +47,7 @@ class TokenData(BaseModel):
     username: str
     client_id: int | None = None
     is_admin: bool = False
+    session_id: int | None = None
 
 class UserDashboardResponse(BaseModel):
     id_user: int

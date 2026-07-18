@@ -7,6 +7,7 @@ from src.service.realtime_location_publisher import (
     LOCATION_CHANNEL,
     publish_location_updated,
 )
+from src.schemas.realtime_location import RealtimeLocationUpdatedEvent
 
 
 class RealtimeLocationPublisherTests(unittest.IsolatedAsyncioTestCase):
@@ -50,6 +51,31 @@ class RealtimeLocationPublisherTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(payload["data"]["altitude"])
         self.assertIsNone(payload["data"]["accuracy"])
         self.assertEqual(payload["data"]["recorded_at"], "2026-07-16T13:20:00+00:00")
+
+    async def test_realtime_location_event_can_be_loaded_from_redis_json(self) -> None:
+        event = RealtimeLocationUpdatedEvent.model_validate_json(
+            json.dumps(
+                {
+                    "version": 1,
+                    "type": "device.location.updated",
+                    "data": {
+                        "location_id": 3601,
+                        "client_id": 4,
+                        "device_id": 26,
+                        "device_serial": "CHIRP-001",
+                        "latitude": -33.6752,
+                        "longitude": -65.4581,
+                        "altitude": 512.4,
+                        "accuracy": 8.2,
+                        "recorded_at": "2026-07-17T13:20:00+00:00",
+                    },
+                }
+            )
+        )
+
+        self.assertEqual(event.data.location_id, 3601)
+        self.assertEqual(event.data.client_id, 4)
+        self.assertEqual(event.data.recorded_at.isoformat(), "2026-07-17T13:20:00+00:00")
 
 
 if __name__ == "__main__":

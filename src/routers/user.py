@@ -87,17 +87,18 @@ async def login(
         username=form_data.username,
         password=form_data.password,
     )
+    refresh_session = await service.create_refresh_session(
+        user_id=user.id_user,
+        user_agent=request.headers.get("user-agent"),
+        ip_address=request.client.host if request.client else None,
+    )
     access_token = service.create_token(
         user_id=user.id_user,
         username=user.name,
         client_id=user.id_client,
         is_admin=user.is_admin,
+        session_id=refresh_session.session.id_session,
         expires_delta=timedelta(minutes=settings.jwt_access_token_expire_minutes),
-    )
-    refresh_session = await service.create_refresh_session(
-        user_id=user.id_user,
-        user_agent=request.headers.get("user-agent"),
-        ip_address=request.client.host if request.client else None,
     )
     set_refresh_token_cookie(response, refresh_session.refresh_token)
 
@@ -134,12 +135,14 @@ async def refresh_token(
         username=refresh_result.token_data.username,
         client_id=refresh_result.token_data.client_id,
         is_admin=refresh_result.token_data.is_admin,
+        session_id=refresh_result.session.id_session,
         expires_delta=timedelta(minutes=settings.jwt_access_token_expire_minutes),
     )
-    set_refresh_token_cookie(
-        response,
-        refresh_result.refresh_token_pair.refresh_token,
-    )
+    if refresh_result.refresh_token_pair is not None:
+        set_refresh_token_cookie(
+            response,
+            refresh_result.refresh_token_pair.refresh_token,
+        )
 
     return TokenResponse(
         access_token=access_token,

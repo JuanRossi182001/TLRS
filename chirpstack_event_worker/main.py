@@ -188,10 +188,14 @@ class ChirpStackEventWorker:
             return
 
         if result.processed_kind == "location":
+            client_id = None
+            if result.realtime_location_data is not None:
+                client_id = result.realtime_location_data.client_id
             logger.info(
-                "Location processed. device_id=%s location_id=%s",
+                "Location processed. device_id=%s location_id=%s client_id=%s",
                 result.device_id,
                 result.location_id,
+                client_id,
             )
             return
 

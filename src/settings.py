@@ -117,12 +117,15 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = 15
     jwt_refresh_token_expire_days: int = 30
     environment: str = "development"
+    cors_allowed_origins: str = "http://localhost:5173"
     refresh_token_cookie_secure: bool | None = None
     refresh_token_cookie_samesite: str = "lax"
     refresh_token_cookie_path: str = "/user/auth"
+    refresh_token_reuse_grace_seconds: int = 5
     user_session_max_active_sessions: int = 5
     user_session_cleanup_retention_days: int = 2
     user_session_cleanup_interval_hours: int = 6
+    websocket_ticket_ttl_seconds: int = 60
 
     @field_validator("refresh_token_cookie_secure", mode="before")
     @classmethod
@@ -165,6 +168,14 @@ class Settings(BaseSettings):
         if self.chirpstack_mqtt_use_tls is None:
             return self.mqtt_tls_enabled
         return self.chirpstack_mqtt_use_tls
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [
+            origin.strip()
+            for origin in self.cors_allowed_origins.split(",")
+            if origin.strip()
+        ]
 
 
 settings = Settings()

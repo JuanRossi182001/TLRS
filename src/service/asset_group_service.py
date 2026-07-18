@@ -111,7 +111,8 @@ class AssetGroupService(CrudBase[AssetGroup, AssetGroupCreate, AssetGroupUpdate]
         result = await self.db.execute(
             stmt.order_by(AssetGroup.created_at.desc()).offset(skip).limit(limit)
         )
-        return [dict(row) for row in result.mappings().all()]
+        asset_groups = [dict(row) for row in result.mappings().all()]
+        return await self._attach_geofence_assignments(asset_groups)
 
     async def get_asset_group_detail_for_client(
         self,
@@ -129,9 +130,11 @@ class AssetGroupService(CrudBase[AssetGroup, AssetGroupCreate, AssetGroupUpdate]
             return None
 
         members = await self._get_asset_group_members(asset_group_id)
+        geofences_assigned = await self._get_geofence_assignments_for_groups([asset_group_id])
         return {
             **dict(summary),
             "members": members,
+            "geofences_assigned": geofences_assigned.get(asset_group_id, []),
         }
 
     async def update_asset_group(
@@ -551,6 +554,70 @@ class AssetGroupService(CrudBase[AssetGroup, AssetGroupCreate, AssetGroupUpdate]
             .order_by(Asset.id_asset)
         )
         return [dict(row) for row in result.mappings().all()]
+
+    async def _attach_geofence_assignments(
+        self,
+        asset_groups: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not asset_groups:
+            return asset_groups
+
+        geofences_by_group_id = await self._get_geofence_assignments_for_groups(
+            [asset_group["id_asset_group"] for asset_group in asset_groups]
+        )
+
+        for asset_group in asset_groups:
+            asset_group["geofences_assigned"] = geofences_by_group_id.get(
+                asset_group["id_asset_group"],
+                [],
+            )
+
+        return asset_groups
+
+    async def _get_geofence_assignments_for_groups(
+        self,
+        asset_group_ids: list[int],
+    ) -> dict[int, list[dict[str, Any]]]:
+        if not asset_group_ids:
+            return {}
+
+        result = await self.db.execute(
+            select(
+                GeoFenceAssetGroup.asset_group_id,
+                GeoFenceAssetGroup.id_geofence_asset_group,
+                GeoFenceAssetGroup.geofence_id,
+                GeoFence.name.label("geofence_name"),
+                GeoFence.description.label("geofence_description"),
+                GeoFence.active.label("geofence_active"),
+                GeoFenceAssetGroup.active.label("assignment_active"),
+                GeoFenceAssetGroup.assigned_at,
+                GeoFenceAssetGroup.unassigned_at,
+            )
+            .join(
+                GeoFence,
+                GeoFence.id_geofence == GeoFenceAssetGroup.geofence_id,
+            )
+            .where(
+                GeoFenceAssetGroup.asset_group_id.in_(asset_group_ids),
+                GeoFenceAssetGroup.deleted == "N",
+                GeoFenceAssetGroup.active.is_(True),
+                GeoFence.deleted == "N",
+            )
+            .order_by(
+                GeoFenceAssetGroup.asset_group_id,
+                GeoFenceAssetGroup.assigned_at.desc(),
+            )
+        )
+
+        assignments_by_group_id: dict[int, list[dict[str, Any]]] = {
+            asset_group_id: [] for asset_group_id in asset_group_ids
+        }
+        for row in result.mappings().all():
+            assignment = dict(row)
+            group_id = assignment.pop("asset_group_id")
+            assignments_by_group_id[group_id].append(assignment)
+
+        return assignments_by_group_id
 
     async def _get_active_asset_ids_for_group(self, asset_group_id: int) -> list[int]:
         result = await self.db.execute(

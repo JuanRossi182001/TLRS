@@ -33,13 +33,46 @@ class RefreshTokenPair:
 
 
 class RefreshSessionResult:
-    def __init__(self, token_data: TokenData, refresh_token_pair: RefreshTokenPair):
+    def __init__(
+        self,
+        token_data: TokenData,
+        session: UserSession,
+        refresh_token_pair: RefreshTokenPair | None = None,
+    ):
         self.token_data = token_data
+        self.session = session
         self.refresh_token_pair = refresh_token_pair
 
 
 class UserService(CrudBase[User, UserCreate, UserUpdate]):
     model = User
+
+    async def get_active_user_by_id(self, user_id: int) -> User | None:
+        result = await self.db.execute(
+            select(User).where(
+                User.id_user == user_id,
+                User.deleted == "N",
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_active_session(
+        self,
+        *,
+        user_id: int,
+        session_id: int,
+    ) -> UserSession | None:
+        now = datetime.utcnow()
+        result = await self.db.execute(
+            select(UserSession).where(
+                UserSession.id_session == session_id,
+                UserSession.user_id == user_id,
+                UserSession.deleted == "N",
+                UserSession.revoked_at.is_(None),
+                UserSession.expires_at > now,
+            )
+        )
+        return result.scalar_one_or_none()
 
     async def create(self, obj_in: UserCreate) -> User:
         if len(obj_in.password.encode("utf-8")) > 72:
@@ -147,6 +180,15 @@ class UserService(CrudBase[User, UserCreate, UserUpdate]):
         )
         row = result.one_or_none()
         if row is None:
+            reused_result = await self._reuse_recently_rotated_session(
+                refresh_token=refresh_token,
+                now=now,
+                user_agent=user_agent,
+                ip_address=ip_address,
+            )
+            if reused_result is not None:
+                return reused_result
+
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid refresh token.",
@@ -180,11 +222,93 @@ class UserService(CrudBase[User, UserCreate, UserUpdate]):
 
         return RefreshSessionResult(
             token_data=token_data,
+            session=new_session,
             refresh_token_pair=RefreshTokenPair(
                 refresh_token=new_refresh_token,
                 session=new_session,
             ),
         )
+
+    async def _reuse_recently_rotated_session(
+        self,
+        *,
+        refresh_token: str,
+        now: datetime,
+        user_agent: str | None,
+        ip_address: str | None,
+    ) -> RefreshSessionResult | None:
+        grace_seconds = settings.refresh_token_reuse_grace_seconds
+        if grace_seconds < 1:
+            return None
+
+        token_hash = self.hash_refresh_token(refresh_token)
+        cutoff = now - timedelta(seconds=grace_seconds)
+        result = await self.db.execute(
+            select(UserSession, User)
+            .join(User, User.id_user == UserSession.user_id)
+            .where(
+                UserSession.refresh_token_hash == token_hash,
+                UserSession.deleted == "N",
+                UserSession.revoked_at.is_not(None),
+                UserSession.revoked_at >= cutoff,
+                UserSession.replaced_by_session_id.is_not(None),
+                User.deleted == "N",
+            )
+        )
+        row = result.one_or_none()
+        if row is None:
+            return None
+
+        previous_session, user = row
+        if not self._request_fingerprint_matches(
+            session=previous_session,
+            user_agent=user_agent,
+            ip_address=ip_address,
+        ):
+            return None
+
+        replacement_result = await self.db.execute(
+            select(UserSession).where(
+                UserSession.id_session == previous_session.replaced_by_session_id,
+                UserSession.user_id == previous_session.user_id,
+                UserSession.deleted == "N",
+                UserSession.revoked_at.is_(None),
+                UserSession.expires_at > now,
+            )
+        )
+        replacement_session = replacement_result.scalar_one_or_none()
+        if replacement_session is None:
+            return None
+
+        return RefreshSessionResult(
+            token_data=TokenData(
+                user_id=user.id_user,
+                username=user.name,
+                client_id=user.id_client,
+                is_admin=user.is_admin,
+            ),
+            session=replacement_session,
+        )
+
+    def _request_fingerprint_matches(
+        self,
+        *,
+        session: UserSession,
+        user_agent: str | None,
+        ip_address: str | None,
+    ) -> bool:
+        normalized_user_agent = self.truncate_user_agent(user_agent)
+        if (
+            session.user_agent
+            and normalized_user_agent
+            and session.user_agent != normalized_user_agent
+        ):
+            return False
+
+        if session.ip_address and ip_address and session.ip_address != ip_address:
+            return False
+
+        return True
 
     async def revoke_refresh_session(self, refresh_token: str) -> None:
         now = datetime.utcnow()
@@ -250,12 +374,14 @@ class UserService(CrudBase[User, UserCreate, UserUpdate]):
         client_id: int | None,
         expires_delta: timedelta,
         is_admin: bool,
+        session_id: int,
     ) -> str:
         to_encode = {
             'sub': username,
             'id': user_id,
             'client_id': client_id,
             'is_admin': is_admin,
+            'session_id': session_id,
             'type': 'access',
         }
         expire = datetime.utcnow() + expires_delta
@@ -377,6 +503,12 @@ def get_current_user(token: Annotated[str, Depends(oauth_bearer)]) -> TokenData:
             algorithms=[settings.jwt_algorithm],
         )
 
+        if payload.get('type') != 'access':
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate user.",
+            )
+
         user_id = payload.get('id')
         username = payload.get('sub')
 
@@ -391,6 +523,7 @@ def get_current_user(token: Annotated[str, Depends(oauth_bearer)]) -> TokenData:
             username=username,
             client_id=payload.get('client_id'),
             is_admin=payload.get('is_admin', False),
+            session_id=payload.get('session_id'),
         )
 
     except jwt.PyJWTError:

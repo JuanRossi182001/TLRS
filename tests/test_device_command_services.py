@@ -46,6 +46,20 @@ class StubAckService(DeviceCommandAckService):
         return self.command_by_seq
 
 
+def build_command(command_seq: int) -> DeviceCommand:
+    return DeviceCommand(
+        command_uuid="command-uuid",
+        command_seq=command_seq,
+        device_id=26,
+        command_type=DeviceCommandType.REQUEST_STATUS,
+        status=DeviceCommandStatus.SENT,
+        topic="application/app/device/dev/command/down",
+        payload={},
+        qos=1,
+        retain=False,
+    )
+
+
 class DeviceCommandSequenceServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_first_command_seq_is_one(self) -> None:
         service = StubSequenceService(last_command_seq=None)
@@ -68,7 +82,7 @@ class DeviceCommandSequenceServiceTests(unittest.IsolatedAsyncioTestCase):
 
 class DeviceCommandAckServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_process_ack_by_command_seq_marks_acked(self) -> None:
-        command = self._build_command(command_seq=43)
+        command = build_command(command_seq=43)
         service = StubAckService(command_by_seq=command)
 
         result = await service.process_ack_by_command_seq(
@@ -118,20 +132,6 @@ class DeviceCommandServiceTests(unittest.IsolatedAsyncioTestCase):
                 command_type=DeviceCommandType.REQUEST_STATUS,
                 reason="manual_test",
             )
-
-    def _build_command(self, command_seq: int) -> DeviceCommand:
-        return DeviceCommand(
-            command_uuid="command-uuid",
-            command_seq=command_seq,
-            device_id=26,
-            command_type=DeviceCommandType.REQUEST_STATUS,
-            status=DeviceCommandStatus.SENT,
-            topic="application/app/device/dev/command/down",
-            payload={},
-            qos=1,
-            retain=False,
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

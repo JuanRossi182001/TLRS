@@ -100,8 +100,20 @@ class AssetGroupRead(BaseModel):
     description: str | None = None
     active: bool
     total_assets: int
+    geofences_assigned: list["AssetGroupAssignedGeofenceRead"]
     created_at: datetime
     updated_at: datetime
+
+
+class AssetGroupAssignedGeofenceRead(BaseModel):
+    id_geofence_asset_group: int
+    geofence_id: int
+    geofence_name: str
+    geofence_description: str | None = None
+    geofence_active: bool
+    assignment_active: bool
+    assigned_at: datetime
+    unassigned_at: datetime | None = None
 
 
 class AssetGroupMemberRead(BaseModel):

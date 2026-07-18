@@ -4,7 +4,10 @@ from typing import Literal
 from pydantic import BaseModel, field_serializer, field_validator
 
 
-def _normalize_utc_datetime(value: datetime) -> datetime:
+def _normalize_utc_datetime(value: datetime | str) -> datetime:
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
 
@@ -24,7 +27,7 @@ class RealtimeLocationData(BaseModel):
 
     @field_validator("recorded_at", mode="before")
     @classmethod
-    def validate_recorded_at(cls, value: datetime) -> datetime:
+    def validate_recorded_at(cls, value: datetime | str) -> datetime:
         return _normalize_utc_datetime(value)
 
     @field_serializer("recorded_at")

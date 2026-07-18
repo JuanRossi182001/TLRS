@@ -118,8 +118,8 @@ class ChirpStackBinaryContractTests(unittest.TestCase):
             f_port=10,
         )
         telemetry = decode_location_payload_v1(event)
-        self.assertAlmostEqual(telemetry.latitude, -33.3012, places=4)
-        self.assertAlmostEqual(telemetry.longitude, -66.3371, places=4)
+        self.assertAlmostEqual(telemetry.latitude, -33.2933408, places=4)
+        self.assertAlmostEqual(telemetry.longitude, -66.3731088, places=4)
         self.assertEqual(telemetry.extra["gps_fix_label"], "GPS_FIX")
 
     def test_decode_status_payload_v1(self) -> None:

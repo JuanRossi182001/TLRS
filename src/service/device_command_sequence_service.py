@@ -40,6 +40,9 @@ class DeviceCommandSequenceService:
         return last_command_seq + 1
 
     async def _acquire_device_sequence_lock(self, device_id: int) -> None:
+        await self._lock_device(device_id)
+
+    async def _lock_device(self, device_id: int) -> None:
         stmt = select(
             func.pg_advisory_xact_lock(
                 self.ADVISORY_LOCK_NAMESPACE,
@@ -57,9 +60,13 @@ class DeviceCommandSequenceService:
         return result.scalar_one_or_none()
 
     def _get_pending_last_command_seq(self, device_id: int) -> int | None:
+        sync_session = getattr(self.db, "sync_session", None)
+        if sync_session is None or not hasattr(sync_session, "new"):
+            return None
+
         pending_command_seqs = [
             command.command_seq
-            for command in self.db.sync_session.new
+            for command in sync_session.new
             if isinstance(command, DeviceCommand)
             and command.device_id == device_id
             and command.command_seq is not None
