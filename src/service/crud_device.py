@@ -13,11 +13,43 @@ from src.schemas.device import (
     DevicesStatsAdminResult
 )
 from src.service.crud_base import CrudBase
+from src.service.device_assignment_service import DeviceAssignmentService
 from src.service.geofence_membership_service import GeofenceMembershipService
 
 
 class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
     model = Device
+
+    async def assign_asset(self, device_id: int, asset_id: int) -> Device | None:
+        return await DeviceAssignmentService(self.db).assign_asset(device_id, asset_id)
+
+    async def release_asset(self, device_id: int) -> Device | None:
+        return await DeviceAssignmentService(self.db).release_asset(device_id)
+
+    async def create(self, obj_in, *, commit: bool = True, refresh: bool = True):
+        asset_id = self._provided_asset_id(obj_in)
+        if asset_id is not None:
+            raise ValueError(
+                "Use DeviceAssignmentService when creating a device with an asset."
+            )
+        return await super().create(obj_in, commit=commit, refresh=refresh)
+
+    async def update(self, db_obj, obj_in, *, commit: bool = True, refresh: bool = True):
+        if self._asset_id_was_supplied(obj_in):
+            raise ValueError("Use the dedicated asset assignment endpoints.")
+        return await super().update(db_obj, obj_in, commit=commit, refresh=refresh)
+
+    @staticmethod
+    def _provided_asset_id(obj_in):
+        if hasattr(obj_in, "model_dump"):
+            return obj_in.model_dump().get("asset_id")
+        return obj_in.get("asset_id")
+
+    @staticmethod
+    def _asset_id_was_supplied(obj_in) -> bool:
+        if hasattr(obj_in, "model_fields_set"):
+            return "asset_id" in obj_in.model_fields_set
+        return "asset_id" in obj_in
 
     async def get_devices_by_client_id(
         self,
@@ -220,7 +252,9 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
                 Device.id_device,
                 Device.serial,
                 Device.name,
+                Device.client_id,
                 Client.name.label("client_name"),
+                Device.asset_id,
                 Asset.asset_type.label("asset_name"),
                 Device.active,
                 Device.state,
@@ -250,6 +284,13 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
         device = await self.get(device_id)
         if device is None:
             return None
+
+        protected_fields = {"asset_id", "active"}
+        attempted_protected_fields = protected_fields & obj_in.model_fields_set
+        if attempted_protected_fields:
+            raise ValueError(
+                "Use the dedicated asset assignment or device activation endpoints."
+            )
 
         if self._chirpstack_application_id_would_be_missing(device, obj_in):
             raise ValueError(
@@ -294,6 +335,22 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
         device = await self.get(device_id)
         if device is None:
             return None
+
+        if device.asset_id is None:
+            raise ValueError("A device without an asset cannot be activated.")
+        if device.client_id is None:
+            raise ValueError("Device must belong to a client before activation.")
+
+        asset_result = await self.db.execute(
+            select(Asset.id_asset).where(
+                Asset.id_asset == device.asset_id,
+                Asset.client_id == device.client_id,
+                Asset.status == AssetStatus.ACTIVE,
+                Asset.deleted == "N",
+            )
+        )
+        if asset_result.scalar_one_or_none() is None:
+            raise ValueError("Assigned asset is not active for this device client.")
 
         device.active = True
         device.state = DeviceState.OFF

@@ -13,11 +13,17 @@ from src.models.device import (
     DeviceProvisioningStatus,
     DeviceState,
 )
+from src.models.asset import Asset
+from src.schemas.device import ProvisioningAssetCreate
 from src.service.device_provisioning_service import (
     DeviceProvisioningConflictError,
     DeviceProvisioningError,
     DeviceProvisioningService,
 )
+
+
+def _provisioning_asset() -> ProvisioningAssetCreate:
+    return ProvisioningAssetCreate(asset_type="CATTLE", serial="COW-001")
 
 
 class FakeSession:
@@ -43,6 +49,30 @@ class FakeSession:
 
     async def refresh(self, value) -> None:
         return None
+
+    async def flush(self) -> None:
+        for value in self.added:
+            if isinstance(value, Asset) and value.id_asset is None:
+                value.id_asset = 1
+            if isinstance(value, Device) and value.id_device is None:
+                value.id_device = self.next_device_id
+                self.next_device_id += 1
+
+    async def rollback(self) -> None:
+        return None
+
+    async def execute(self, statement):
+        if "FROM clients" in str(statement):
+            return FakeScalarResult(1)
+        return FakeScalarResult(None)
+
+
+class FakeScalarResult:
+    def __init__(self, value) -> None:
+        self.value = value
+
+    def scalar_one_or_none(self):
+        return self.value
 
 
 class FakeChirpStackApiClient:
@@ -132,6 +162,8 @@ class ChirpStackDeviceProvisioningServiceTests(unittest.IsolatedAsyncioTestCase)
             app_key="00112233445566778899aabbccddeeff",
             chirpstack_application_id="app-1",
             chirpstack_device_profile_id="profile-1",
+            client_id=1,
+            asset=_provisioning_asset(),
         )
 
         self.assertEqual(len(api_client.create_device_calls), 1)
@@ -157,6 +189,8 @@ class ChirpStackDeviceProvisioningServiceTests(unittest.IsolatedAsyncioTestCase)
             app_key="00112233445566778899aabbccddeeff",
             chirpstack_application_id="app-1",
             chirpstack_device_profile_id="profile-1",
+            client_id=1,
+            asset=_provisioning_asset(),
         )
 
         self.assertEqual(result.provisioning_status, DeviceProvisioningStatus.PROVISIONED)
@@ -189,6 +223,8 @@ class ChirpStackDeviceProvisioningServiceTests(unittest.IsolatedAsyncioTestCase)
                 app_key="00112233445566778899aabbccddeeff",
                 chirpstack_application_id="app-1",
                 chirpstack_device_profile_id="profile-1",
+                client_id=1,
+                asset=_provisioning_asset(),
             )
 
         self.assertEqual(session.last_device.provisioning_status, DeviceProvisioningStatus.FAILED.value)
@@ -210,6 +246,8 @@ class ChirpStackDeviceProvisioningServiceTests(unittest.IsolatedAsyncioTestCase)
                 app_key="00112233445566778899aabbccddeeff",
                 chirpstack_application_id="app-1",
                 chirpstack_device_profile_id="profile-1",
+                client_id=1,
+                asset=_provisioning_asset(),
             )
 
         self.assertEqual(session.last_device.provisioning_status, DeviceProvisioningStatus.FAILED.value)
@@ -263,6 +301,8 @@ class ChirpStackDeviceProvisioningServiceTests(unittest.IsolatedAsyncioTestCase)
                     app_key=app_key,
                     chirpstack_application_id="app-1",
                     chirpstack_device_profile_id="profile-1",
+                    client_id=1,
+                    asset=_provisioning_asset(),
                 )
 
         logs = "\n".join(captured.output)

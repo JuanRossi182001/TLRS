@@ -48,6 +48,10 @@ class Device(base):
             "communication_protocol != 'CHIRPSTACK' OR (chirpstack_application_id IS NOT NULL AND btrim(chirpstack_application_id) <> '')",
             name="ck_devices_chirpstack_requires_application_id",
         ),
+        CheckConstraint(
+            "active = false OR asset_id IS NOT NULL",
+            name="ck_devices_active_requires_asset",
+        ),
         Index(
             "uq_devices_serial_active",
             "serial",
@@ -110,6 +114,10 @@ class Device(base):
 
     client = relationship("Client", back_populates="devices")
     asset = relationship("Asset", back_populates="devices")
+    asset_assignments = relationship(
+        "DeviceAssetAssignment",
+        back_populates="device",
+    )
     locations = relationship(
         "Location",
         back_populates="device",

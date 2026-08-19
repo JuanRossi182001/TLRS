@@ -216,7 +216,13 @@ async def reactivate_device(
     await validate_user_service_access(current_user, "admin:reactivate device", db)
     device_service = DeviceService(db)
 
-    device = await device_service.reactivate_device(device_id)
+    try:
+        device = await device_service.reactivate_device(device_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
     if device is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

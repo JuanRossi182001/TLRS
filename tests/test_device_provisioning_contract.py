@@ -12,6 +12,8 @@ class DeviceProvisioningContractTests(unittest.TestCase):
             serial="COLLAR-001",
             name="Collar 001",
             type="COLLAR",
+            client_id=1,
+            asset={"asset_type": "CATTLE", "serial": "COW-001"},
             dev_eui="01 02 03 04 05 06 07 08",
             join_eui="10 20 30 40 50 60 70 80",
             app_key="00112233445566778899AABBCCDDEEFF",
@@ -34,6 +36,8 @@ class DeviceProvisioningContractTests(unittest.TestCase):
                 serial="COLLAR-001",
                 name="Collar 001",
                 type="COLLAR",
+                client_id=1,
+                asset={"asset_type": "CATTLE", "serial": "COW-001"},
                 join_eui="1020304050607080",
                 app_key="00112233445566778899aabbccddeeff",
                 chirpstack_application_id="app-1",
@@ -46,6 +50,8 @@ class DeviceProvisioningContractTests(unittest.TestCase):
                 serial="COLLAR-001",
                 name="Collar 001",
                 type="COLLAR",
+                client_id=1,
+                asset={"asset_type": "CATTLE", "serial": "COW-001"},
                 dev_eui="0102030405060708",
                 join_eui="1020304050607080",
                 app_key="00112233445566778899aabbccddeeff",
@@ -58,6 +64,8 @@ class DeviceProvisioningContractTests(unittest.TestCase):
                 serial="COLLAR-001",
                 name="Collar 001",
                 type="COLLAR",
+                client_id=1,
+                asset={"asset_type": "CATTLE", "serial": "COW-001"},
                 dev_eui="invalid",
                 join_eui="1020304050607080",
                 app_key="00112233445566778899aabbccddeeff",
@@ -71,6 +79,8 @@ class DeviceProvisioningContractTests(unittest.TestCase):
                 serial="COLLAR-001",
                 name="Collar 001",
                 type="COLLAR",
+                client_id=1,
+                asset={"asset_type": "CATTLE", "serial": "COW-001"},
                 dev_eui="0102030405060708",
                 join_eui="1020304050607080",
                 app_key="bad-key",
@@ -84,12 +94,37 @@ class DeviceProvisioningContractTests(unittest.TestCase):
                 serial="MQTT-001",
                 name="MQTT 001",
                 type="COLLAR",
+                client_id=1,
+                asset={"asset_type": "CATTLE", "serial": "COW-001"},
                 communication_protocol=DeviceCommunicationProtocol.MQTT,
                 dev_eui="0102030405060708",
                 join_eui="1020304050607080",
                 app_key="00112233445566778899aabbccddeeff",
                 chirpstack_application_id="app-1",
                 chirpstack_device_profile_id="profile-1",
+            )
+
+    def test_create_device_requires_exactly_one_asset_reference(self) -> None:
+        base_payload = {
+            "serial": "COLLAR-001",
+            "name": "Collar 001",
+            "type": "COLLAR",
+            "client_id": 1,
+            "dev_eui": "0102030405060708",
+            "join_eui": "1020304050607080",
+            "app_key": "00112233445566778899aabbccddeeff",
+            "chirpstack_application_id": "app-1",
+            "chirpstack_device_profile_id": "profile-1",
+        }
+
+        with self.assertRaises(ValidationError):
+            ChirpStackDeviceCreate(**base_payload)
+
+        with self.assertRaises(ValidationError):
+            ChirpStackDeviceCreate(
+                **base_payload,
+                asset_id=5,
+                asset={"asset_type": "CATTLE", "serial": "COW-001"},
             )
 
 

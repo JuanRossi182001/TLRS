@@ -8,6 +8,7 @@ from src.models.device import (
     DeviceProvisioningStatus,
     DeviceState,
 )
+from src.models.asset import AssetStatus
 from src.models.geofence import GeoFenceStatus
 
 
@@ -172,12 +173,19 @@ class DeviceRead(DeviceBase):
     last_seen_at: datetime | None = None
 
 
+class ProvisioningAssetCreate(BaseModel):
+    asset_type: str = Field(min_length=1, max_length=255)
+    serial: str = Field(min_length=1, max_length=255)
+    status: AssetStatus = AssetStatus.ACTIVE
+
+
 class ChirpStackDeviceCreate(BaseModel):
-    serial: str
-    name: str
-    type: str
-    client_id: int | None = None
+    serial: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1, max_length=255)
+    type: str = Field(min_length=1, max_length=255)
+    client_id: int = Field(gt=0)
     asset_id: int | None = None
+    asset: ProvisioningAssetCreate | None = None
     communication_protocol: DeviceCommunicationProtocol = DeviceCommunicationProtocol.CHIRPSTACK
     dev_eui: str
     join_eui: str
@@ -252,7 +260,22 @@ class ChirpStackDeviceCreate(BaseModel):
             raise ValueError(
                 "chirpstack_device_profile_id is required for CHIRPSTACK devices"
             )
+        if (self.asset_id is None) == (self.asset is None):
+            raise ValueError("Exactly one of asset_id or asset is required")
         return self
+
+
+class DeviceAssetAssignmentRequest(BaseModel):
+    asset_id: int = Field(gt=0)
+
+
+class DeviceAssetAssignmentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id_device: int
+    asset_id: int | None
+    active: bool
+    state: DeviceState
 
 
 class DeviceCreateSch(ChirpStackDeviceCreate):
@@ -315,8 +338,10 @@ class DeviceAdminResponse(BaseModel):
     id_device: int
     serial: str
     name: str
-    client_name: str
-    asset_name: str
+    client_id: int | None = None
+    client_name: str | None = None
+    asset_id: int | None = None
+    asset_name: str | None = None
     active: bool
     state: DeviceState
     communication_protocol: DeviceCommunicationProtocol | None = None

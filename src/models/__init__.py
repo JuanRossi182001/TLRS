@@ -7,6 +7,7 @@ from src.models.device import (
     DeviceCommunicationProtocol,
     DeviceState,
 )
+from src.models.device_asset_assignment import DeviceAssetAssignment
 from src.models.device_command import (
     DeviceCommand,
     DeviceCommandStatus,
@@ -31,6 +32,7 @@ __all__ = [
     "Client",
     "ChirpStackEvent",
     "Device",
+    "DeviceAssetAssignment",
     "DeviceCommand",
     "DeviceCommandStatus",
     "DeviceCommandType",

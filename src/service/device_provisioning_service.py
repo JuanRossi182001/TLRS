@@ -17,7 +17,13 @@ from src.models.device import (
     DeviceProvisioningStatus,
     DeviceState,
 )
-from src.schemas.device import ChirpStackProvisioningRead
+from src.models.asset import Asset, AssetStatus
+from src.models.client import Client
+from src.schemas.device import ChirpStackProvisioningRead, ProvisioningAssetCreate
+from src.service.device_assignment_service import (
+    DeviceAssignmentError,
+    DeviceAssignmentService,
+)
 
 
 logger = logging.getLogger("device_provisioning_service")
@@ -55,8 +61,9 @@ class DeviceProvisioningService:
         app_key: str,
         chirpstack_application_id: str,
         chirpstack_device_profile_id: str,
-        client_id: int | None = None,
+        client_id: int,
         asset_id: int | None = None,
+        asset: ProvisioningAssetCreate | None = None,
         communication_protocol: DeviceCommunicationProtocol = DeviceCommunicationProtocol.CHIRPSTACK,
         description: str | None = None,
         is_disabled: bool = False,
@@ -66,6 +73,12 @@ class DeviceProvisioningService:
                 "Only CHIRPSTACK device provisioning is supported"
             )
 
+        resolved_asset = await self._resolve_asset(
+            client_id=client_id,
+            asset_id=asset_id,
+            asset=asset,
+        )
+
         device = Device(
             serial=serial,
             name=name,
@@ -73,7 +86,6 @@ class DeviceProvisioningService:
             state=DeviceState.OFF,
             communication_protocol=DeviceCommunicationProtocol.CHIRPSTACK,
             client_id=client_id,
-            asset_id=asset_id,
             active=True,
             chirpstack_dev_eui=dev_eui,
             join_eui=join_eui,
@@ -83,9 +95,13 @@ class DeviceProvisioningService:
             provisioning_error=None,
         )
 
-        self.db.add(device)
-        await self.db.commit()
-        await self.db.refresh(device)
+        try:
+            device = await DeviceAssignmentService(self.db).create_initial_assignment(
+                device,
+                resolved_asset,
+            )
+        except DeviceAssignmentError as exc:
+            raise DeviceProvisioningConflictError(str(exc)) from exc
 
         try:
             await self._upsert_remote_device(
@@ -271,6 +287,59 @@ class DeviceProvisioningService:
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def _resolve_asset(
+        self,
+        *,
+        client_id: int,
+        asset_id: int | None,
+        asset: ProvisioningAssetCreate | None,
+    ) -> Asset:
+        if (asset_id is None) == (asset is None):
+            raise DeviceProvisioningError("Exactly one of asset_id or asset is required")
+
+        await self._validate_client(client_id)
+
+        if asset is not None:
+            if asset.status != AssetStatus.ACTIVE:
+                raise DeviceProvisioningError(
+                    "A newly provisioned device requires an active asset"
+                )
+            created_asset = Asset(
+                asset_type=asset.asset_type,
+                serial=asset.serial,
+                client_id=client_id,
+                status=asset.status,
+                deleted="N",
+            )
+            self.db.add(created_asset)
+            await self.db.flush()
+            return created_asset
+
+        result = await self.db.execute(
+            select(Asset).where(
+                Asset.id_asset == asset_id,
+                Asset.client_id == client_id,
+                Asset.deleted == "N",
+            )
+        )
+        existing_asset = result.scalar_one_or_none()
+        if existing_asset is None:
+            raise DeviceProvisioningNotFoundError("Asset not found for this client.")
+        if existing_asset.status != AssetStatus.ACTIVE:
+            raise DeviceProvisioningConflictError("Asset is inactive.")
+
+        return existing_asset
+
+    async def _validate_client(self, client_id: int) -> None:
+        result = await self.db.execute(
+            select(Client.id_client).where(
+                Client.id_client == client_id,
+                Client.deleted == "N",
+            )
+        )
+        if result.scalar_one_or_none() is None:
+            raise DeviceProvisioningNotFoundError("Client not found.")
 
     def _validate_remote_device_compatibility(
         self,
