@@ -1,5 +1,4 @@
 import importlib.util
-import unittest
 from pathlib import Path
 
 
@@ -25,37 +24,29 @@ class MigrationOperationsRecorder:
         return self.bind
 
 
-class AssetRbacMigrationTests(unittest.TestCase):
-    def test_upgrade_registers_and_assigns_my_assets_permission(self) -> None:
-        module = self._load_migration_module()
-        operations = MigrationOperationsRecorder()
-        module.op = operations
-
-        module.upgrade()
-
-        self.assertEqual(len(operations.bind.executed), 2)
-        self.assertIn("INSERT INTO services", operations.bind.executed[0][0])
-        self.assertIn("INSERT INTO service_roles", operations.bind.executed[1][0])
-        self.assertEqual(
-            operations.bind.executed[0][1],
-            {"name": "asset:get my assets"},
-        )
-        self.assertEqual(
-            operations.bind.executed[1][1],
-            {"name": "asset:get my assets", "role_id": 1},
-        )
-
-    @staticmethod
-    def _load_migration_module():
-        spec = importlib.util.spec_from_file_location(
-            "asset_rbac_migration",
-            MIGRATION_PATH,
-        )
-        module = importlib.util.module_from_spec(spec)
-        assert spec.loader is not None
-        spec.loader.exec_module(module)
-        return module
+def load_migration_module():
+    spec = importlib.util.spec_from_file_location(
+        "asset_rbac_migration",
+        MIGRATION_PATH,
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_upgrade_registers_and_assigns_my_assets_permission() -> None:
+    module = load_migration_module()
+    operations = MigrationOperationsRecorder()
+    module.op = operations
+
+    module.upgrade()
+
+    assert len(operations.bind.executed) == 2
+    assert "INSERT INTO services" in operations.bind.executed[0][0]
+    assert "INSERT INTO service_roles" in operations.bind.executed[1][0]
+    assert operations.bind.executed[0][1] == {"name": "asset:get my assets"}
+    assert operations.bind.executed[1][1] == {
+        "name": "asset:get my assets",
+        "role_id": 1,
+    }

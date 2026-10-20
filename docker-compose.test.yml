@@ -1,0 +1,17 @@
+name: tlrs-pytest
+
+services:
+  postgres-test:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: tlrs_test
+      POSTGRES_USER: tlrs_test
+      POSTGRES_PASSWORD: tlrs_test
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "psql -U tlrs_test -d tlrs_test -Atqc 'SELECT 1' | grep -qx 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: "no"

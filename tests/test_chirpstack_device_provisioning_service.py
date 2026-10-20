@@ -1,4 +1,4 @@
-import unittest
+import pytest
 
 from src.integrations.chirpstack.api_client import (
     ChirpStackAlreadyExistsError,
@@ -147,199 +147,192 @@ class StubDeviceProvisioningService(DeviceProvisioningService):
         return self.devices_by_id.get(device_id)
 
 
-class ChirpStackDeviceProvisioningServiceTests(unittest.IsolatedAsyncioTestCase):
-    async def test_provision_device_happy_path(self) -> None:
-        session = FakeSession()
-        api_client = FakeChirpStackApiClient()
-        service = DeviceProvisioningService(session, api_client)
-
-        result = await service.provision_device(
-            serial="COLLAR-001",
-            name="Collar 001",
-            type="COLLAR",
-            dev_eui="0102030405060708",
-            join_eui="1020304050607080",
-            app_key="00112233445566778899aabbccddeeff",
-            chirpstack_application_id="app-1",
-            chirpstack_device_profile_id="profile-1",
-            client_id=1,
-            asset=_provisioning_asset(),
-        )
-
-        self.assertEqual(len(api_client.create_device_calls), 1)
-        self.assertEqual(len(api_client.create_device_keys_calls), 1)
-        self.assertEqual(result.provisioning_status, DeviceProvisioningStatus.PROVISIONED)
-        self.assertEqual(result.app_key_last4, "eeff")
-        self.assertEqual(session.last_device.provisioning_status, DeviceProvisioningStatus.PROVISIONED.value)
-        self.assertEqual(session.last_device.app_key_last4, "eeff")
-        self.assertFalse(hasattr(session.last_device, "app_key"))
-
-    async def test_provision_device_already_exists_compatible_continues(self) -> None:
-        session = FakeSession()
-        api_client = FakeChirpStackApiClient()
-        api_client.create_device_exception = ChirpStackAlreadyExistsError("device exists")
-        service = DeviceProvisioningService(session, api_client)
-
-        result = await service.provision_device(
-            serial="COLLAR-001",
-            name="Collar 001",
-            type="COLLAR",
-            dev_eui="0102030405060708",
-            join_eui="1020304050607080",
-            app_key="00112233445566778899aabbccddeeff",
-            chirpstack_application_id="app-1",
-            chirpstack_device_profile_id="profile-1",
-            client_id=1,
-            asset=_provisioning_asset(),
-        )
-
-        self.assertEqual(result.provisioning_status, DeviceProvisioningStatus.PROVISIONED)
-        self.assertEqual(len(api_client.get_device_calls), 1)
-        self.assertEqual(len(api_client.update_device_calls), 1)
-
-    async def test_provision_device_already_exists_incompatible_marks_failed(self) -> None:
-        session = FakeSession()
-        api_client = FakeChirpStackApiClient()
-        api_client.create_device_exception = ChirpStackAlreadyExistsError("device exists")
-        api_client.get_device_response = ChirpStackDeviceRecord(
-            dev_eui="0102030405060708",
-            name="Collar 001",
-            application_id="other-app",
-            device_profile_id="profile-1",
-            description=None,
-            join_eui="1020304050607080",
-            is_disabled=False,
-            tags={"serial": "COLLAR-001"},
-        )
-        service = DeviceProvisioningService(session, api_client)
-
-        with self.assertRaises(DeviceProvisioningConflictError):
-            await service.provision_device(
-                serial="COLLAR-001",
-                name="Collar 001",
-                type="COLLAR",
-                dev_eui="0102030405060708",
-                join_eui="1020304050607080",
-                app_key="00112233445566778899aabbccddeeff",
-                chirpstack_application_id="app-1",
-                chirpstack_device_profile_id="profile-1",
-                client_id=1,
-                asset=_provisioning_asset(),
-            )
-
-        self.assertEqual(session.last_device.provisioning_status, DeviceProvisioningStatus.FAILED.value)
-        self.assertIn("different application_id", session.last_device.provisioning_error)
-
-    async def test_provision_device_keys_failure_marks_failed(self) -> None:
-        session = FakeSession()
-        api_client = FakeChirpStackApiClient()
-        api_client.create_device_keys_exception = ChirpStackValidationError("COMMAND_BAD_KEYS")
-        service = DeviceProvisioningService(session, api_client)
-
-        with self.assertRaises(ChirpStackValidationError):
-            await service.provision_device(
-                serial="COLLAR-001",
-                name="Collar 001",
-                type="COLLAR",
-                dev_eui="0102030405060708",
-                join_eui="1020304050607080",
-                app_key="00112233445566778899aabbccddeeff",
-                chirpstack_application_id="app-1",
-                chirpstack_device_profile_id="profile-1",
-                client_id=1,
-                asset=_provisioning_asset(),
-            )
-
-        self.assertEqual(session.last_device.provisioning_status, DeviceProvisioningStatus.FAILED.value)
-        self.assertEqual(session.last_device.provisioned_at, None)
-
-    async def test_retry_provisioning_can_complete_failed_device(self) -> None:
-        session = FakeSession()
-        api_client = FakeChirpStackApiClient()
-        api_client.create_device_exception = ChirpStackAlreadyExistsError("device exists")
-        device = self._build_device()
-        service = StubDeviceProvisioningService(session, api_client, {26: device})
-
-        result = await service.retry_provisioning(
-            device_id=26,
-            app_key="00112233445566778899aabbccddeeff",
-        )
-
-        self.assertEqual(result.provisioning_status, DeviceProvisioningStatus.PROVISIONED)
-        self.assertEqual(device.provisioning_status, DeviceProvisioningStatus.PROVISIONED.value)
-        self.assertEqual(len(api_client.update_device_calls), 1)
-
-    async def test_retry_without_app_key_requires_existing_remote_keys(self) -> None:
-        session = FakeSession()
-        api_client = FakeChirpStackApiClient()
-        api_client.get_device_keys_exception = ChirpStackNotFoundError("missing keys")
-        device = self._build_device()
-        service = StubDeviceProvisioningService(session, api_client, {26: device})
-
-        with self.assertRaisesRegex(DeviceProvisioningError, "app_key is required"):
-            await service.retry_provisioning(device_id=26, app_key=None)
-
-        self.assertEqual(device.provisioning_status, DeviceProvisioningStatus.FAILED.value)
-
-    async def test_logs_and_errors_do_not_expose_app_key(self) -> None:
-        session = FakeSession()
-        api_client = FakeChirpStackApiClient()
-        app_key = "00112233445566778899aabbccddeeff"
-        api_client.create_device_keys_exception = ChirpStackValidationError(
-            f"invalid key {app_key}"
-        )
-        service = DeviceProvisioningService(session, api_client)
-
-        with self.assertLogs("device_provisioning_service", level="WARNING") as captured:
-            with self.assertRaises(ChirpStackValidationError):
-                await service.provision_device(
-                    serial="COLLAR-001",
-                    name="Collar 001",
-                    type="COLLAR",
-                    dev_eui="0102030405060708",
-                    join_eui="1020304050607080",
-                    app_key=app_key,
-                    chirpstack_application_id="app-1",
-                    chirpstack_device_profile_id="profile-1",
-                    client_id=1,
-                    asset=_provisioning_asset(),
-                )
-
-        logs = "\n".join(captured.output)
-        self.assertNotIn(app_key, logs)
-        self.assertIn("[REDACTED]", logs)
-        self.assertNotIn(app_key, session.last_device.provisioning_error)
-
-    async def test_get_provisioning_does_not_return_app_key(self) -> None:
-        session = FakeSession()
-        api_client = FakeChirpStackApiClient()
-        device = self._build_device(status=DeviceProvisioningStatus.PROVISIONED.value)
-        device.app_key_last4 = "eeff"
-        service = StubDeviceProvisioningService(session, api_client, {26: device})
-
-        result = await service.get_provisioning(26)
-
-        self.assertEqual(result.app_key_last4, "eeff")
-        self.assertFalse(hasattr(result, "app_key"))
-
-    def _build_device(self, status: str = DeviceProvisioningStatus.FAILED.value) -> Device:
-        return Device(
-            id_device=26,
-            serial="COLLAR-001",
-            name="Collar 001",
-            type="COLLAR",
-            active=True,
-            deleted="N",
-            state=DeviceState.OFF,
-            communication_protocol=DeviceCommunicationProtocol.CHIRPSTACK,
-            chirpstack_dev_eui="0102030405060708",
-            join_eui="1020304050607080",
-            chirpstack_application_id="app-1",
-            chirpstack_device_profile_id="profile-1",
-            provisioning_status=status,
-            provisioning_error="previous failure" if status == DeviceProvisioningStatus.FAILED.value else None,
-        )
+@pytest.fixture
+def provisioning_context():
+    session = FakeSession()
+    api_client = FakeChirpStackApiClient()
+    return session, api_client, DeviceProvisioningService(session, api_client)
 
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.fixture
+def provisioning_request() -> dict[str, object]:
+    return {
+        "serial": "COLLAR-001",
+        "name": "Collar 001",
+        "type": "COLLAR",
+        "dev_eui": "0102030405060708",
+        "join_eui": "1020304050607080",
+        "app_key": "00112233445566778899aabbccddeeff",
+        "chirpstack_application_id": "app-1",
+        "chirpstack_device_profile_id": "profile-1",
+        "client_id": 1,
+        "asset": _provisioning_asset(),
+    }
+
+
+def build_device(status: str = DeviceProvisioningStatus.FAILED.value) -> Device:
+    return Device(
+        id_device=26,
+        serial="COLLAR-001",
+        name="Collar 001",
+        type="COLLAR",
+        active=True,
+        deleted="N",
+        state=DeviceState.OFF,
+        communication_protocol=DeviceCommunicationProtocol.CHIRPSTACK,
+        chirpstack_dev_eui="0102030405060708",
+        join_eui="1020304050607080",
+        chirpstack_application_id="app-1",
+        chirpstack_device_profile_id="profile-1",
+        provisioning_status=status,
+        provisioning_error=(
+            "previous failure"
+            if status == DeviceProvisioningStatus.FAILED.value
+            else None
+        ),
+    )
+
+
+@pytest.mark.anyio
+async def test_provision_device_happy_path(
+    provisioning_context,
+    provisioning_request: dict[str, object],
+) -> None:
+    session, api_client, service = provisioning_context
+
+    result = await service.provision_device(**provisioning_request)
+
+    assert len(api_client.create_device_calls) == 1
+    assert len(api_client.create_device_keys_calls) == 1
+    assert result.provisioning_status == DeviceProvisioningStatus.PROVISIONED
+    assert result.app_key_last4 == "eeff"
+    assert session.last_device.provisioning_status == DeviceProvisioningStatus.PROVISIONED.value
+    assert session.last_device.app_key_last4 == "eeff"
+    assert not hasattr(session.last_device, "app_key")
+
+
+@pytest.mark.anyio
+async def test_provision_device_already_exists_compatible_continues(
+    provisioning_context,
+    provisioning_request: dict[str, object],
+) -> None:
+    _, api_client, service = provisioning_context
+    api_client.create_device_exception = ChirpStackAlreadyExistsError("device exists")
+
+    result = await service.provision_device(**provisioning_request)
+
+    assert result.provisioning_status == DeviceProvisioningStatus.PROVISIONED
+    assert len(api_client.get_device_calls) == 1
+    assert len(api_client.update_device_calls) == 1
+
+
+@pytest.mark.anyio
+async def test_provision_device_already_exists_incompatible_marks_failed(
+    provisioning_context,
+    provisioning_request: dict[str, object],
+) -> None:
+    session, api_client, service = provisioning_context
+    api_client.create_device_exception = ChirpStackAlreadyExistsError("device exists")
+    api_client.get_device_response = ChirpStackDeviceRecord(
+        dev_eui="0102030405060708",
+        name="Collar 001",
+        application_id="other-app",
+        device_profile_id="profile-1",
+        description=None,
+        join_eui="1020304050607080",
+        is_disabled=False,
+        tags={"serial": "COLLAR-001"},
+    )
+
+    with pytest.raises(DeviceProvisioningConflictError):
+        await service.provision_device(**provisioning_request)
+
+    assert session.last_device.provisioning_status == DeviceProvisioningStatus.FAILED.value
+    assert "different application_id" in session.last_device.provisioning_error
+
+
+@pytest.mark.anyio
+async def test_provision_device_keys_failure_marks_failed(
+    provisioning_context,
+    provisioning_request: dict[str, object],
+) -> None:
+    session, api_client, service = provisioning_context
+    api_client.create_device_keys_exception = ChirpStackValidationError("COMMAND_BAD_KEYS")
+
+    with pytest.raises(ChirpStackValidationError):
+        await service.provision_device(**provisioning_request)
+
+    assert session.last_device.provisioning_status == DeviceProvisioningStatus.FAILED.value
+    assert session.last_device.provisioned_at is None
+
+
+@pytest.mark.anyio
+async def test_retry_provisioning_can_complete_failed_device(
+    provisioning_context,
+) -> None:
+    session, api_client, _ = provisioning_context
+    api_client.create_device_exception = ChirpStackAlreadyExistsError("device exists")
+    device = build_device()
+    service = StubDeviceProvisioningService(session, api_client, {26: device})
+
+    result = await service.retry_provisioning(
+        device_id=26,
+        app_key="00112233445566778899aabbccddeeff",
+    )
+
+    assert result.provisioning_status == DeviceProvisioningStatus.PROVISIONED
+    assert device.provisioning_status == DeviceProvisioningStatus.PROVISIONED.value
+    assert len(api_client.update_device_calls) == 1
+
+
+@pytest.mark.anyio
+async def test_retry_without_app_key_requires_existing_remote_keys(
+    provisioning_context,
+) -> None:
+    session, api_client, _ = provisioning_context
+    api_client.get_device_keys_exception = ChirpStackNotFoundError("missing keys")
+    device = build_device()
+    service = StubDeviceProvisioningService(session, api_client, {26: device})
+
+    with pytest.raises(DeviceProvisioningError, match="app_key is required"):
+        await service.retry_provisioning(device_id=26, app_key=None)
+
+    assert device.provisioning_status == DeviceProvisioningStatus.FAILED.value
+
+
+@pytest.mark.anyio
+async def test_logs_and_errors_do_not_expose_app_key(
+    provisioning_context,
+    provisioning_request: dict[str, object],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    session, api_client, service = provisioning_context
+    app_key = str(provisioning_request["app_key"])
+    api_client.create_device_keys_exception = ChirpStackValidationError(
+        f"invalid key {app_key}"
+    )
+
+    with (
+        caplog.at_level("WARNING", logger="device_provisioning_service"),
+        pytest.raises(ChirpStackValidationError),
+    ):
+        await service.provision_device(**provisioning_request)
+
+    assert app_key not in caplog.text
+    assert "[REDACTED]" in caplog.text
+    assert app_key not in session.last_device.provisioning_error
+
+
+@pytest.mark.anyio
+async def test_get_provisioning_does_not_return_app_key(
+    provisioning_context,
+) -> None:
+    session, api_client, _ = provisioning_context
+    device = build_device(status=DeviceProvisioningStatus.PROVISIONED.value)
+    device.app_key_last4 = "eeff"
+    service = StubDeviceProvisioningService(session, api_client, {26: device})
+
+    result = await service.get_provisioning(26)
+
+    assert result.app_key_last4 == "eeff"
+    assert not hasattr(result, "app_key")

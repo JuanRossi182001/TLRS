@@ -1,5 +1,6 @@
-import unittest
 from datetime import datetime
+
+import pytest
 
 from src.models.device import Device, DeviceCommunicationProtocol, DeviceState
 from src.models.device_command import DeviceCommand, DeviceCommandStatus, DeviceCommandType
@@ -60,78 +61,93 @@ def build_command(command_seq: int) -> DeviceCommand:
     )
 
 
-class DeviceCommandSequenceServiceTests(unittest.IsolatedAsyncioTestCase):
-    async def test_first_command_seq_is_one(self) -> None:
-        service = StubSequenceService(last_command_seq=None)
-        self.assertEqual(await service.allocate_next_command_seq(26), 1)
-        self.assertEqual(service.locked_device_id, 26)
+@pytest.mark.anyio
+async def test_first_command_seq_is_one() -> None:
+    service = StubSequenceService(last_command_seq=None)
 
-    async def test_next_command_seq_increments(self) -> None:
-        service = StubSequenceService(last_command_seq=1)
-        self.assertEqual(await service.allocate_next_command_seq(26), 2)
+    command_seq = await service.allocate_next_command_seq(26)
 
-    async def test_command_seq_never_wraps_to_zero_in_v1(self) -> None:
-        service = StubSequenceService(last_command_seq=65534)
-        self.assertEqual(await service.allocate_next_command_seq(26), 65535)
-
-    async def test_command_seq_exhaustion_is_clear(self) -> None:
-        service = StubSequenceService(last_command_seq=65535)
-        with self.assertRaises(DeviceCommandSequenceError):
-            await service.allocate_next_command_seq(26)
+    assert command_seq == 1
+    assert service.locked_device_id == 26
 
 
-class DeviceCommandAckServiceTests(unittest.IsolatedAsyncioTestCase):
-    async def test_process_ack_by_command_seq_marks_acked(self) -> None:
-        command = build_command(command_seq=43)
-        service = StubAckService(command_by_seq=command)
+@pytest.mark.anyio
+async def test_next_command_seq_increments() -> None:
+    service = StubSequenceService(last_command_seq=1)
 
-        result = await service.process_ack_by_command_seq(
-            26,
-            DeviceCommandAckPayload(
-                command_seq=43,
-                status=DeviceCommandAckStatus.EXECUTED,
-                executed_at=datetime(2026, 7, 13, 12, 0, 0),
+    command_seq = await service.allocate_next_command_seq(26)
+
+    assert command_seq == 2
+
+
+@pytest.mark.anyio
+async def test_command_seq_never_wraps_to_zero_in_v1() -> None:
+    service = StubSequenceService(last_command_seq=65534)
+
+    command_seq = await service.allocate_next_command_seq(26)
+
+    assert command_seq == 65535
+
+
+@pytest.mark.anyio
+async def test_command_seq_exhaustion_is_clear() -> None:
+    service = StubSequenceService(last_command_seq=65535)
+
+    with pytest.raises(DeviceCommandSequenceError, match="No command_seq available"):
+        await service.allocate_next_command_seq(26)
+
+
+@pytest.mark.anyio
+async def test_process_ack_by_command_seq_marks_acked() -> None:
+    command = build_command(command_seq=43)
+    service = StubAckService(command_by_seq=command)
+
+    result = await service.process_ack_by_command_seq(
+        26,
+        DeviceCommandAckPayload(
+            command_seq=43,
+            status=DeviceCommandAckStatus.EXECUTED,
+            executed_at=datetime(2026, 7, 13, 12, 0, 0),
+        ),
+    )
+
+    assert result.success
+    assert command.status == DeviceCommandStatus.ACKED
+    assert command.ack_at is not None
+
+
+@pytest.mark.anyio
+async def test_process_ack_by_command_seq_returns_not_found() -> None:
+    service = StubAckService(command_by_seq=None)
+
+    result = await service.process_ack_by_command_seq(
+        26,
+        DeviceCommandAckPayload(
+            command_seq=999,
+            status=DeviceCommandAckStatus.EXECUTED,
+        ),
+    )
+
+    assert not result.success
+    assert result.failure_reason == "COMMAND_ACK_COMMAND_SEQ_NOT_FOUND"
+
+
+@pytest.mark.anyio
+async def test_non_chirpstack_devices_cannot_create_commands() -> None:
+    service = DeviceCommandService(FakeSession())
+
+    with pytest.raises(ValueError, match="does not support ChirpStack downlinks"):
+        await service.create_pending_command(
+            device=Device(
+                id_device=26,
+                serial="MQTT-026",
+                name="MQTT Device",
+                type="COLLAR",
+                active=True,
+                deleted="N",
+                state=DeviceState.ON,
+                communication_protocol=DeviceCommunicationProtocol.MQTT,
             ),
+            command_type=DeviceCommandType.REQUEST_STATUS,
+            reason="manual_test",
         )
-
-        self.assertTrue(result.success)
-        self.assertEqual(command.status, DeviceCommandStatus.ACKED)
-        self.assertIsNotNone(command.ack_at)
-
-    async def test_process_ack_by_command_seq_returns_not_found(self) -> None:
-        service = StubAckService(command_by_seq=None)
-
-        result = await service.process_ack_by_command_seq(
-            26,
-            DeviceCommandAckPayload(
-                command_seq=999,
-                status=DeviceCommandAckStatus.EXECUTED,
-            ),
-        )
-
-        self.assertFalse(result.success)
-        self.assertEqual(result.failure_reason, "COMMAND_ACK_COMMAND_SEQ_NOT_FOUND")
-
-
-class DeviceCommandServiceTests(unittest.IsolatedAsyncioTestCase):
-    async def test_non_chirpstack_devices_cannot_create_commands(self) -> None:
-        service = DeviceCommandService(FakeSession())
-
-        with self.assertRaisesRegex(ValueError, "does not support ChirpStack downlinks"):
-            await service.create_pending_command(
-                device=Device(
-                    id_device=26,
-                    serial="MQTT-026",
-                    name="MQTT Device",
-                    type="COLLAR",
-                    active=True,
-                    deleted="N",
-                    state=DeviceState.ON,
-                    communication_protocol=DeviceCommunicationProtocol.MQTT,
-                ),
-                command_type=DeviceCommandType.REQUEST_STATUS,
-                reason="manual_test",
-            )
-
-if __name__ == "__main__":
-    unittest.main()

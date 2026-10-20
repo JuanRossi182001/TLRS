@@ -34,7 +34,13 @@ device_protocol_enum_without_chirpstack = postgresql.ENUM(
 def upgrade() -> None:
     bind = op.get_bind()
 
-    op.execute("ALTER TYPE devicecommunicationprotocol ADD VALUE IF NOT EXISTS 'CHIRPSTACK'")
+    # PostgreSQL does not allow a newly added enum value to be used until the
+    # transaction that added it has committed. Later revisions query this value.
+    with op.get_context().autocommit_block():
+        op.execute(
+            "ALTER TYPE devicecommunicationprotocol "
+            "ADD VALUE IF NOT EXISTS 'CHIRPSTACK'"
+        )
 
     op.add_column("devices", sa.Column("chirpstack_dev_eui", sa.String(), nullable=True))
     op.add_column(
