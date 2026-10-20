@@ -22,7 +22,7 @@ class AssetService(CrudBase[Asset, AssetCreate, AssetUpdate]):
         await self._validate_client(payload.client_id)
         return await self.create(payload)
 
-    async def get_assets(
+    async def get_assets_by_client_id(
         self,
         *,
         client_id: int,

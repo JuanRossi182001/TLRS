@@ -40,6 +40,12 @@ class DeviceAssignmentService:
                     raise DeviceAssignmentInvariantError(
                         "Device current asset does not match its active assignment history."
                     )
+                if not device.active:
+                    device.active = True
+                    device.state = DeviceState.OFF
+                    self.db.add(device)
+                    await self.db.commit()
+                    await self.db.refresh(device)
                 return device
 
             self._validate_current_assignment(device, active_assignment)
@@ -57,6 +63,9 @@ class DeviceAssignmentService:
                 )
             )
             device.asset_id = asset.id_asset
+            if not device.active:
+                device.active = True
+                device.state = DeviceState.OFF
             self.db.add(device)
             await self.db.commit()
             await self.db.refresh(device)

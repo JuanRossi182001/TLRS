@@ -152,6 +152,8 @@ class DeviceAssetAssignmentServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(assignment.asset_id, 10)
         self.assertEqual(assignment.assigned_at, ASSIGNMENT_TIME)
         self.assertIsNone(assignment.unassigned_at)
+        self.assertTrue(device.active)
+        self.assertEqual(device.state, DeviceState.OFF)
         self.assertTrue(session.committed)
 
     async def test_reassignment_closes_previous_interval_at_new_start(self) -> None:
@@ -224,6 +226,31 @@ class DeviceAssetAssignmentServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(result, device)
         self.assertEqual(session.added, [])
         self.assertFalse(session.committed)
+        self.assertIsNone(assignment.unassigned_at)
+
+    async def test_same_asset_reactivates_an_inactive_device(self) -> None:
+        device = self._device(id_device=1, asset_id=10, active=False)
+        device.state = DeviceState.OFF
+        assignment = DeviceAssetAssignment(
+            device_id=1,
+            asset_id=10,
+            assigned_at=datetime(2026, 1, 1),
+        )
+        session = FakeSession()
+        session.track(device, assignment)
+        service = ControlledAssignmentService(
+            session,
+            device=device,
+            asset=self._asset(10),
+            active_assignment=assignment,
+        )
+
+        result = await service.assign_asset(1, 10)
+
+        self.assertIs(result, device)
+        self.assertTrue(device.active)
+        self.assertEqual(device.state, DeviceState.OFF)
+        self.assertTrue(session.committed)
         self.assertIsNone(assignment.unassigned_at)
 
     async def test_release_without_asset_is_idempotent(self) -> None:
