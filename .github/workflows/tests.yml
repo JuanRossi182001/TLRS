@@ -1,0 +1,35 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: tlrs_test
+          POSTGRES_USER: tlrs_test
+          POSTGRES_PASSWORD: tlrs_test
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "psql -U tlrs_test -d tlrs_test -Atqc 'SELECT 1' | grep -qx 1"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql://tlrs_test:tlrs_test@127.0.0.1:55432/tlrs_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt -r requirements-test.txt
+      - name: Run full pytest suite
+        run: python -m pytest -q

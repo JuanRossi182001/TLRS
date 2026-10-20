@@ -1,0 +1,14 @@
+services:
+  chirpstack-simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - ${CHIRPSTACK_SIMULATOR_ENV_FILE:-.env}
+    command:
+      - /usr/local/bin/chirpstack-simulator
+      - -c
+      - /app/chirpstack-simulator.toml
+    volumes:
+      - ./chirpstack-simulator.toml:/app/chirpstack-simulator.toml:ro
+    restart: unless-stopped

@@ -1,10 +1,21 @@
+from enum import Enum
+
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    text,
+)
+from sqlalchemy import Enum as SqlAlchemyEnum
+from sqlalchemy.orm import Mapped, relationship
 
 from src.db.config.config import base
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean
-from sqlalchemy import Enum as SqlAlchemyEnum
-from sqlalchemy.orm import Mapped,relationship
-from enum import Enum
-from datetime import datetime
 
 
 class DeviceState(Enum):
@@ -14,11 +25,14 @@ class DeviceState(Enum):
 class DeviceCommunicationProtocol(Enum):
     HTTP = "HTTP"
     MQTT = "MQTT"
+    CHIRPSTACK = "CHIRPSTACK"
 
 
-class CredentialStatus(Enum):
-    ACTIVE = "ACTIVE"
-    REVOKED = "REVOKED"
+class DeviceProvisioningStatus(str, Enum):
+    NOT_PROVISIONED = "NOT_PROVISIONED"
+    PENDING = "PENDING"
+    PROVISIONED = "PROVISIONED"
+    FAILED = "FAILED"
 
 
 
@@ -29,12 +43,58 @@ class Device(base):
     """
 
     __tablename__ = "devices"
+    __table_args__ = (
+        CheckConstraint(
+            "communication_protocol != 'CHIRPSTACK' OR (chirpstack_application_id IS NOT NULL AND btrim(chirpstack_application_id) <> '')",
+            name="ck_devices_chirpstack_requires_application_id",
+        ),
+        CheckConstraint(
+            "active = false OR asset_id IS NOT NULL",
+            name="ck_devices_active_requires_asset",
+        ),
+        Index(
+            "uq_devices_serial_active",
+            "serial",
+            unique=True,
+            postgresql_where=text("deleted = 'N'"),
+        ),
+        Index(
+            "uq_devices_asset_id_active",
+            "asset_id",
+            unique=True,
+            postgresql_where=text("deleted = 'N' AND asset_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_devices_chirpstack_dev_eui_active",
+            "chirpstack_dev_eui",
+            unique=True,
+            postgresql_where=text(
+                "deleted = 'N' AND chirpstack_dev_eui IS NOT NULL"
+            ),
+        ),
+    )
 
     id_device = Column(Integer, primary_key=True)
-    serial = Column(String, unique=True, nullable=False)
+    serial = Column(String, nullable=False)
     name = Column(String, nullable=False)
     type = Column(String, nullable=False)
-
+    last_seen_at = Column(DateTime, nullable=True)
+    chirpstack_dev_eui = Column(String, nullable=True)
+    join_eui = Column(String, nullable=True)
+    chirpstack_application_id = Column(String, nullable=True)
+    lorawan_class = Column(String, nullable=True)
+    chirpstack_device_profile_id = Column(String, nullable=True)
+    provisioning_status = Column(
+        String,
+        nullable=False,
+        default=DeviceProvisioningStatus.NOT_PROVISIONED.value,
+        server_default=DeviceProvisioningStatus.NOT_PROVISIONED.value,
+    )
+    provisioned_at = Column(DateTime, nullable=True)
+    provisioning_error = Column(Text, nullable=True)
+    app_key_last4 = Column(String(4), nullable=True)
+    deleted = Column(String(1), default="N", nullable=False)
+    
     state: Mapped[DeviceState] = Column(
         SqlAlchemyEnum(DeviceState),
         default=DeviceState.OFF,
@@ -43,7 +103,7 @@ class Device(base):
 
     communication_protocol: Mapped[DeviceCommunicationProtocol] = Column(
         SqlAlchemyEnum(DeviceCommunicationProtocol),
-        default=DeviceCommunicationProtocol.HTTP,
+        default=DeviceCommunicationProtocol.CHIRPSTACK,
         nullable=False,
     )
 
@@ -54,42 +114,16 @@ class Device(base):
 
     client = relationship("Client", back_populates="devices")
     asset = relationship("Asset", back_populates="devices")
-    device_credentials = relationship(
-        "DeviceCredential",
+    asset_assignments = relationship(
+        "DeviceAssetAssignment",
         back_populates="device",
-        cascade="all, delete-orphan",
-    )
-    telemetry_messages = relationship(
-        "TelemetryMessage",
-        back_populates="device",
-        cascade="all, delete-orphan",
     )
     locations = relationship(
         "Location",
         back_populates="device",
         cascade="all, delete-orphan",
     )
-
-
-class DeviceCredential(base):
-    """
-    Represents device authentication material.
-    """
-
-    __tablename__ = "device_credentials"
-
-    id = Column(Integer, primary_key=True)
-    device_id = Column(Integer, ForeignKey("devices.id_device"), nullable=False)
-
-    secret = Column(String, nullable=False)
-
-    status: Mapped[CredentialStatus] = Column(
-        SqlAlchemyEnum(CredentialStatus),
-        default=CredentialStatus.ACTIVE,
-        nullable=False,
+    chirpstack_events = relationship(
+        "ChirpStackEvent",
+        back_populates="device",
     )
-
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    revoked_at = Column(DateTime, nullable=True)
-
-    device = relationship("Device", back_populates="device_credentials")

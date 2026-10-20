@@ -1,0 +1,76 @@
+# Logging configuration.
+[logging]
+level="info"
+
+
+# PostgreSQL configuration.
+[postgresql]
+dsn="postgres://$CHIRPSTACK_POSTGRES_USER:$CHIRPSTACK_POSTGRES_PASSWORD@postgres/$CHIRPSTACK_POSTGRES_DB?sslmode=disable"
+max_open_connections=10
+min_idle_connections=0
+
+
+# Redis configuration.
+[redis]
+servers=[
+  "redis://$CHIRPSTACK_REDIS_HOST:$CHIRPSTACK_REDIS_PORT/",
+]
+cluster=false
+
+
+# API interface configuration.
+[api]
+bind="0.0.0.0:$CHIRPSTACK_UI_PORT"
+secret="$CHIRPSTACK_API_SECRET"
+
+
+# Global gateway configuration.
+[gateway]
+allow_unknown_gateways=false
+
+
+# Network related configuration.
+[network]
+net_id="000000"
+enabled_regions=[
+  "$LORAWAN_REGION",
+]
+
+
+# Monitoring related configuration.
+[monitoring]
+bind="0.0.0.0:8091"
+backend_interfaces_log_max_history=0
+meta_log_max_history=0
+gateway_frame_log_max_history=0
+device_frame_log_max_history=0
+device_event_log_max_history=0
+per_gateway_frame_log_max_history=0
+per_device_frame_log_max_history=0
+per_device_event_log_max_history=0
+
+
+# Global integration configuration.
+[integration]
+enabled=["mqtt"]
+
+  [integration.mqtt]
+  event_topic="application/{{application_id}}/device/{{dev_eui}}/event/{{event}}"
+  command_topic="application/{{application_id}}/device/{{dev_eui}}/command/{{command}}"
+  json=true
+  server="ssl://$EMQX_MQTT_HOST:$EMQX_MQTT_PORT/"
+  username="$EMQX_MQTT_USERNAME"
+  password="$EMQX_MQTT_PASSWORD"
+  qos=0
+  clean_session=false
+  share_name="chirpstack"
+  keep_alive_interval="30s"
+  ca_cert=""
+  tls_cert=""
+  tls_key=""
+
+
+# UI configuration.
+[ui]
+tileserver_url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+map_attribution="&copy; <a href=\"http://osm.org/copyright\">OpenStreetMap</a> contributors"

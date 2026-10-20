@@ -1,0 +1,9 @@
+user device_aaa_001
+topic write gps/devices/AAA-001/location
+topic write gps/devices/AAA-001/status
+topic write gps/devices/AAA-001/heartbeat
+
+user gps_worker
+topic read gps/devices/+/location
+topic read gps/devices/+/status
+topic read gps/devices/+/heartbeat
