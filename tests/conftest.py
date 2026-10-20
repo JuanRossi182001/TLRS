@@ -12,6 +12,11 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 
+# Settings require MQTT coordinates at import time. Tests stub external brokers,
+# so provide local-only defaults without requiring a developer or CI .env file.
+os.environ.setdefault("MQTT_HOST", "localhost")
+os.environ.setdefault("MQTT_PORT", "1883")
+
 _INTEGRATION_DATABASE_WAS_EXPLICITLY_CONFIGURED = "TEST_DATABASE_URL" in os.environ
 _DEFAULT_TEST_DATABASE_URL = (
     "postgresql://tlrs_test:tlrs_test@127.0.0.1:55432/tlrs_test"
