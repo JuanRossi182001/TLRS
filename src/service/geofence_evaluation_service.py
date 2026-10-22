@@ -33,7 +33,7 @@ class GeoFenceEvaluationService:
     def __init__(
         self,
         db: AsyncSession,
-        near_limit_threshold_meters: float = 50.0,
+        near_limit_threshold_meters: float = 5.0,
         gps_uncertain_accuracy_meters: float = 30.0,
     ):
         self.db = db

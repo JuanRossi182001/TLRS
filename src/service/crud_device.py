@@ -3,7 +3,7 @@ import json
 from sqlalchemy import func, select
 from src.models.device import Device, DeviceCommunicationProtocol, DeviceState
 from src.models.client import Client
-from src.models.asset import Asset
+from src.models.asset import Asset, AssetStatus
 from src.models.location import Location
 from src.models.geofence import GeoFenceAssetState
 from src.schemas.device import (
@@ -178,6 +178,7 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
             .where(
                 Device.client_id == client_id,
                 Device.deleted == "N",
+                Device.asset_id.is_not(None),
                 latest_location.c.latitude != None,
                 latest_location.c.longitude != None,
                 latest_location.c.point != None

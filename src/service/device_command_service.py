@@ -30,7 +30,7 @@ logger = logging.getLogger("device_command_service")
 class DeviceCommandService:
     DEFAULT_QOS = 1
     DEFAULT_RETAIN = False
-    NORMAL_REPORT_INTERVAL_SECONDS = 600
+    NORMAL_REPORT_INTERVAL_SECONDS = 60
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -140,7 +140,7 @@ class DeviceCommandService:
             return [
                 (
                     DeviceCommandType.SET_REPORT_INTERVAL,
-                    {"interval_seconds": 5},
+                    {"interval_seconds": 10},
                 ),
                 (
                     DeviceCommandType.WARNING_SOUND,
