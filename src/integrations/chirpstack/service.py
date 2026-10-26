@@ -30,7 +30,10 @@ from src.models.chirpstack_event import ChirpStackEvent
 from src.models.device import Device, DeviceState
 from src.models.device_command import DeviceCommand, DeviceCommandStatus
 from src.models.location import Location
-from src.schemas.realtime_location import RealtimeLocationData
+from src.schemas.realtime_location import (
+    RealtimeGeofenceState,
+    RealtimeLocationData,
+)
 from src.service.device_command_ack_service import DeviceCommandAckService
 from src.service.location_ingestion_service import LocationIngestionService
 from src.service.realtime_location_publisher import (
@@ -217,12 +220,22 @@ class ChirpStackEventService:
         normalized_telemetry = decode_up_event(up_event)
 
         location_service = LocationIngestionService(self.db)
-        location = await location_service.persist_location(
-            device=device,
-            normalized_telemetry=normalized_telemetry,
-            received_at=self._utcnow(),
+        location, evaluation_results = (
+            await location_service.persist_location_with_statuses(
+                device=device,
+                normalized_telemetry=normalized_telemetry,
+                received_at=self._utcnow(),
+            )
         )
-        realtime_location_data = await self._build_realtime_location_data(device, location)
+        geofence_states = [
+            RealtimeGeofenceState(fence_id=item.fence_id, status=item.level)
+            for item in evaluation_results
+        ]
+        realtime_location_data = await self._build_realtime_location_data(
+            device,
+            location,
+            geofence_states,
+        )
 
         event.processed = True
         event.error_message = None
@@ -728,6 +741,7 @@ class ChirpStackEventService:
                 altitude=realtime_location_data.altitude,
                 accuracy=realtime_location_data.accuracy,
                 recorded_at=realtime_location_data.recorded_at,
+                geofence_states=realtime_location_data.geofence_states,
             )
         except RedisError as exc:
             logger.exception(
@@ -755,6 +769,7 @@ class ChirpStackEventService:
         self,
         device: Device,
         location: Location,
+        geofence_states: list[RealtimeGeofenceState] | None = None,
     ) -> RealtimeLocationData | None:
         client_id = await self._resolve_device_client_id(device)
         if client_id is None:
@@ -776,6 +791,7 @@ class ChirpStackEventService:
             altitude=location.altitude,
             accuracy=location.accuracy,
             recorded_at=location.device_timestamp or location.received_at,
+            geofence_states=geofence_states or [],
         )
 
     async def _resolve_device_client_id(self, device: Device) -> int | None:

@@ -1,7 +1,9 @@
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, field_serializer, field_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator
+
+from src.models.geofence import GeoFenceStatus
 
 
 def _normalize_utc_datetime(value: datetime | str) -> datetime:
@@ -14,6 +16,11 @@ def _normalize_utc_datetime(value: datetime | str) -> datetime:
     return value.astimezone(UTC)
 
 
+class RealtimeGeofenceState(BaseModel):
+    fence_id: int
+    status: GeoFenceStatus
+
+
 class RealtimeLocationData(BaseModel):
     location_id: int
     client_id: int
@@ -24,6 +31,7 @@ class RealtimeLocationData(BaseModel):
     altitude: float | None = None
     accuracy: float | None = None
     recorded_at: datetime
+    geofence_states: list[RealtimeGeofenceState] = Field(default_factory=list)
 
     @field_validator("recorded_at", mode="before")
     @classmethod

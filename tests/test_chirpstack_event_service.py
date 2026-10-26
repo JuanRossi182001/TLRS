@@ -153,8 +153,8 @@ class ChirpStackEventServiceTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             with patch(
-                "src.integrations.chirpstack.service.LocationIngestionService.persist_location",
-                AsyncMock(return_value=location_stub),
+                "src.integrations.chirpstack.service.LocationIngestionService.persist_location_with_statuses",
+                AsyncMock(return_value=(location_stub, [])),
             ) as persist_location:
                 result = await service._process_up_event("app", "0102030405060708", {}, event)
 
@@ -187,8 +187,8 @@ class ChirpStackEventServiceTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             with patch(
-                "src.integrations.chirpstack.service.LocationIngestionService.persist_location",
-                AsyncMock(return_value=self._build_location_stub(device_timestamp=None)),
+                "src.integrations.chirpstack.service.LocationIngestionService.persist_location_with_statuses",
+                AsyncMock(return_value=(self._build_location_stub(device_timestamp=None), [])),
             ):
                 result = await service._process_up_event("app", "0102030405060708", {}, event)
 
@@ -207,7 +207,7 @@ class ChirpStackEventServiceTests(unittest.IsolatedAsyncioTestCase):
         event = self._build_event(application_id="wrong-app")
 
         with patch(
-            "src.integrations.chirpstack.service.LocationIngestionService.persist_location",
+            "src.integrations.chirpstack.service.LocationIngestionService.persist_location_with_statuses",
             AsyncMock(),
         ) as persist_location:
             result = await service._process_up_event(
@@ -230,7 +230,7 @@ class ChirpStackEventServiceTests(unittest.IsolatedAsyncioTestCase):
         event = self._build_event()
 
         with patch(
-            "src.integrations.chirpstack.service.LocationIngestionService.persist_location",
+            "src.integrations.chirpstack.service.LocationIngestionService.persist_location_with_statuses",
             AsyncMock(),
         ) as persist_location:
             result = await service._process_up_event(

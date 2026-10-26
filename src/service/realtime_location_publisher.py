@@ -2,6 +2,7 @@ from datetime import datetime
 
 from src.infrastructure.redis.client import get_redis_client
 from src.schemas.realtime_location import (
+    RealtimeGeofenceState,
     RealtimeLocationData,
     RealtimeLocationUpdatedEvent,
 )
@@ -21,6 +22,7 @@ async def publish_location_updated(
     altitude: float | None,
     accuracy: float | None,
     recorded_at: datetime,
+    geofence_states: list[RealtimeGeofenceState] | None = None,
 ) -> int:
     event = RealtimeLocationUpdatedEvent(
         data=RealtimeLocationData(
@@ -33,6 +35,7 @@ async def publish_location_updated(
             altitude=altitude,
             accuracy=accuracy,
             recorded_at=recorded_at,
+            geofence_states=geofence_states or [],
         )
     )
 

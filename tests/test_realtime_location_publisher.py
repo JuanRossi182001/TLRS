@@ -8,7 +8,11 @@ from src.service.realtime_location_publisher import (
     LOCATION_CHANNEL,
     publish_location_updated,
 )
-from src.schemas.realtime_location import RealtimeLocationUpdatedEvent
+from src.models.geofence import GeoFenceStatus
+from src.schemas.realtime_location import (
+    RealtimeGeofenceState,
+    RealtimeLocationUpdatedEvent,
+)
 
 
 @pytest.mark.anyio
@@ -33,6 +37,10 @@ async def test_publish_location_updated_uses_versioned_contract() -> None:
             altitude=None,
             accuracy=None,
             recorded_at=datetime(2026, 7, 16, 13, 20, 0),
+            geofence_states=[
+                RealtimeGeofenceState(fence_id=8, status=GeoFenceStatus.SAFE),
+                RealtimeGeofenceState(fence_id=9, status=GeoFenceStatus.OUTSIDE),
+            ],
         )
 
     redis_client.publish.assert_awaited_once()
@@ -52,6 +60,10 @@ async def test_publish_location_updated_uses_versioned_contract() -> None:
     assert payload["data"]["altitude"] is None
     assert payload["data"]["accuracy"] is None
     assert payload["data"]["recorded_at"] == "2026-07-16T13:20:00+00:00"
+    assert payload["data"]["geofence_states"] == [
+        {"fence_id": 8, "status": "SAFE"},
+        {"fence_id": 9, "status": "OUTSIDE"},
+    ]
 
 
 @pytest.mark.anyio
@@ -71,6 +83,7 @@ async def test_realtime_location_event_can_be_loaded_from_redis_json() -> None:
                     "altitude": 512.4,
                     "accuracy": 8.2,
                     "recorded_at": "2026-07-17T13:20:00+00:00",
+                    "geofence_states": [{"fence_id": 8, "status": "NEAR_LIMIT"}],
                 },
             }
         )
@@ -79,3 +92,4 @@ async def test_realtime_location_event_can_be_loaded_from_redis_json() -> None:
     assert event.data.location_id == 3601
     assert event.data.client_id == 4
     assert event.data.recorded_at.isoformat() == "2026-07-17T13:20:00+00:00"
+    assert event.data.geofence_states[0].status == GeoFenceStatus.NEAR_LIMIT
