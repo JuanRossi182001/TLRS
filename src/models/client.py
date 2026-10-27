@@ -1,8 +1,8 @@
+from sqlalchemy import Column, Index, Integer, String, func, text
+from sqlalchemy.orm import relationship
+
 from src.db.config.config import base
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
-from sqlalchemy import Enum as SqlAlchemyEnum
-from enum import Enum
-from sqlalchemy.orm import Mapped,relationship
+
 
 class Client(base):
     """
@@ -10,6 +10,14 @@ class Client(base):
     """
 
     __tablename__ = "clients"
+    __table_args__ = (
+        Index(
+            "uq_clients_email_active_ci",
+            func.lower(text("email")),
+            unique=True,
+            postgresql_where=text("deleted = 'N'"),
+        ),
+    )
 
     id_client = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
