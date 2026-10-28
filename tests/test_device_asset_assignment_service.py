@@ -179,6 +179,7 @@ class DeviceAssetAssignmentServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(previous.unassigned_at, ASSIGNMENT_TIME)
         self.assertEqual(assignment.assigned_at, ASSIGNMENT_TIME)
         self.assertEqual(device.asset_id, 20)
+        self.assertEqual(device.qr_token, "stable-qr-token")
         self.assertTrue(device.active)
 
     async def test_release_closes_history_and_deactivates_device(self) -> None:
@@ -201,6 +202,7 @@ class DeviceAssetAssignmentServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIs(result, device)
         self.assertIsNone(device.asset_id)
+        self.assertEqual(device.qr_token, "stable-qr-token")
         self.assertFalse(device.active)
         self.assertEqual(device.state, DeviceState.OFF)
         self.assertEqual(assignment.unassigned_at, ASSIGNMENT_TIME)
@@ -408,6 +410,7 @@ class DeviceAssetAssignmentServiceTests(unittest.IsolatedAsyncioTestCase):
         return Device(
             id_device=id_device,
             serial="COLLAR-001",
+            qr_token="stable-qr-token",
             name="Collar 001",
             type="COLLAR",
             client_id=1,

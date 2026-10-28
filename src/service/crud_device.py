@@ -1,6 +1,6 @@
 import json
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from src.models.device import Device, DeviceCommunicationProtocol, DeviceState
 from src.models.client import Client
 from src.models.asset import Asset, AssetStatus
@@ -10,7 +10,9 @@ from src.schemas.device import (
     DeviceCreate,
     DeviceUserStatsResponse,
     DeviceUpdate,
-    DevicesStatsAdminResult
+    DevicesStatsAdminResult,
+    DeviceQrAssetSummary,
+    DeviceQrResolveResponse,
 )
 from src.service.crud_base import CrudBase
 from src.service.device_assignment_service import DeviceAssignmentService
@@ -25,6 +27,63 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
 
     async def release_asset(self, device_id: int) -> Device | None:
         return await DeviceAssignmentService(self.db).release_asset(device_id)
+
+    async def resolve_qr_token(
+        self,
+        qr_token: str,
+        *,
+        client_id: int | None,
+    ) -> DeviceQrResolveResponse | None:
+        stmt = (
+            select(Device, Asset)
+            .outerjoin(
+                Asset,
+                and_(
+                    Asset.id_asset == Device.asset_id,
+                    Asset.deleted == "N",
+                    func.coalesce(Device.client_id, Asset.client_id)
+                    == Asset.client_id,
+                ),
+            )
+            .where(
+                Device.qr_token == qr_token,
+                Device.deleted == "N",
+            )
+        )
+        if client_id is not None:
+            stmt = stmt.where(
+                func.coalesce(Device.client_id, Asset.client_id) == client_id
+            )
+
+        result = await self.db.execute(stmt)
+        row = result.one_or_none()
+        if row is None:
+            return None
+
+        device, asset = row
+        asset_summary = (
+            DeviceQrAssetSummary(
+                id_asset=asset.id_asset,
+                serial=asset.serial,
+                asset_type=asset.asset_type,
+                status=asset.status,
+            )
+            if asset is not None
+            else None
+        )
+        return DeviceQrResolveResponse(
+            id_device=device.id_device,
+            serial=device.serial,
+            name=device.name,
+            type=device.type,
+            state=device.state,
+            active=device.active,
+            asset=asset_summary,
+        )
+
+    async def get_qr_token(self, device_id: int) -> str | None:
+        device = await self.get(device_id)
+        return device.qr_token if device is not None else None
 
     async def create(self, obj_in, *, commit: bool = True, refresh: bool = True):
         asset_id = self._provided_asset_id(obj_in)

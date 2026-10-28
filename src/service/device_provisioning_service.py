@@ -16,6 +16,7 @@ from src.models.device import (
     DeviceCommunicationProtocol,
     DeviceProvisioningStatus,
     DeviceState,
+    generate_qr_token,
 )
 from src.models.asset import Asset, AssetStatus
 from src.models.client import Client
@@ -81,6 +82,7 @@ class DeviceProvisioningService:
 
         device = Device(
             serial=serial,
+            qr_token=generate_qr_token(),
             name=name,
             type=type,
             state=DeviceState.OFF,

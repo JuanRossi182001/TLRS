@@ -20,6 +20,8 @@ from src.schemas.device import (
     DeviceAssetAssignmentRequest,
     DeviceLastLocation,
     DevicePaginatedResponse,
+    DeviceQrResolveResponse,
+    DeviceQrTokenResponse,
     ChirpStackProvisioningRead,
     ChirpStackRetryProvisioningRequest,
 )
@@ -62,6 +64,63 @@ def _device_conflict_message(exc: IntegrityError) -> str:
             return message
 
     return "Device serial, asset or ChirpStack DevEUI already exists."
+
+
+@router.get(
+    "/by-qr/{qr_token}",
+    status_code=status.HTTP_200_OK,
+    response_model=DeviceQrResolveResponse,
+)
+async def resolve_device_by_qr(
+    qr_token: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
+    if current_user.is_admin:
+        client_id = None
+    else:
+        await validate_user_service_access(
+            current_user,
+            "device:get my devices",
+            db,
+        )
+        client_id = current_user.client_id
+        if client_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Device not found.",
+            )
+
+    device = await DeviceService(db).resolve_qr_token(
+        qr_token,
+        client_id=client_id,
+    )
+    if device is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not found.",
+        )
+    return device
+
+
+@router.get(
+    "/{id_device}/qr",
+    status_code=status.HTTP_200_OK,
+    response_model=DeviceQrTokenResponse,
+)
+async def get_device_qr_token(
+    id_device: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
+    _require_admin_user(current_user)
+    qr_token = await DeviceService(db).get_qr_token(id_device)
+    if qr_token is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not found.",
+        )
+    return DeviceQrTokenResponse(qr_token=qr_token)
 
 
 @router.post(

@@ -1,3 +1,4 @@
+import secrets
 from enum import Enum
 
 from sqlalchemy import (
@@ -16,6 +17,11 @@ from sqlalchemy import Enum as SqlAlchemyEnum
 from sqlalchemy.orm import Mapped, relationship
 
 from src.db.config.config import base
+
+
+def generate_qr_token() -> str:
+    """Create an unguessable URL-safe identifier for a device QR code."""
+    return secrets.token_urlsafe(32)
 
 
 class DeviceState(Enum):
@@ -72,10 +78,12 @@ class Device(base):
                 "deleted = 'N' AND chirpstack_dev_eui IS NOT NULL"
             ),
         ),
+        Index("uq_devices_qr_token", "qr_token", unique=True),
     )
 
     id_device = Column(Integer, primary_key=True)
     serial = Column(String, nullable=False)
+    qr_token = Column(String(43), nullable=False, default=generate_qr_token)
     name = Column(String, nullable=False)
     type = Column(String, nullable=False)
     last_seen_at = Column(DateTime, nullable=True)

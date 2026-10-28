@@ -173,6 +173,27 @@ class DeviceRead(DeviceBase):
     last_seen_at: datetime | None = None
 
 
+class DeviceQrAssetSummary(BaseModel):
+    id_asset: int
+    serial: str
+    asset_type: str
+    status: AssetStatus
+
+
+class DeviceQrResolveResponse(BaseModel):
+    id_device: int
+    serial: str
+    name: str
+    type: str
+    state: DeviceState
+    active: bool
+    asset: DeviceQrAssetSummary | None = None
+
+
+class DeviceQrTokenResponse(BaseModel):
+    qr_token: str
+
+
 class ProvisioningAssetCreate(BaseModel):
     asset_type: str = Field(min_length=1, max_length=255)
     serial: str = Field(min_length=1, max_length=255)

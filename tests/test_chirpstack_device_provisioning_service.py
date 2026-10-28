@@ -208,6 +208,7 @@ async def test_provision_device_happy_path(
     assert result.app_key_last4 == "eeff"
     assert session.last_device.provisioning_status == DeviceProvisioningStatus.PROVISIONED.value
     assert session.last_device.app_key_last4 == "eeff"
+    assert len(session.last_device.qr_token) == 43
     assert not hasattr(session.last_device, "app_key")
 
 
