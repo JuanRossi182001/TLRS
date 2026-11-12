@@ -76,44 +76,56 @@ def analyze_temporal_continuity(
     )
     assessments: list[TemporalIntervalAssessment] = []
 
-    for index, delta_seconds in enumerate(deltas):
+    for index in range(len(deltas)):
         start_at = observed_timestamps[index]
         end_at = observed_timestamps[index + 1]
-        if delta_seconds <= 0:
-            assessments.append(
-                _indeterminate_assessment(
-                    start_at=start_at,
-                    end_at=end_at,
-                    delta_seconds=delta_seconds,
-                )
-            )
-            continue
-
-        left_estimate = _estimate_cadence(
-            deltas[max(0, index - cadence_window_size):index],
-            min_cadence_samples=min_cadence_samples,
-            gap_factor=gap_factor,
-            min_jitter_allowance_seconds=min_jitter_allowance_seconds,
-            max_cadence_variability=max_cadence_variability,
-        )
-        right_estimate = _estimate_cadence(
-            deltas[index + 1:index + 1 + cadence_window_size],
-            min_cadence_samples=min_cadence_samples,
-            gap_factor=gap_factor,
-            min_jitter_allowance_seconds=min_jitter_allowance_seconds,
-            max_cadence_variability=max_cadence_variability,
-        )
         assessments.append(
-            _assess_interval(
-                start_at=start_at,
-                end_at=end_at,
-                delta_seconds=delta_seconds,
-                left_estimate=left_estimate,
-                right_estimate=right_estimate,
+            _assess_delta_at(
+                deltas=deltas, index=index, start_at=start_at, end_at=end_at,
+                cadence_window_size=cadence_window_size,
+                min_cadence_samples=min_cadence_samples, gap_factor=gap_factor,
+                min_jitter_allowance_seconds=min_jitter_allowance_seconds,
+                max_cadence_variability=max_cadence_variability,
             )
         )
 
     return tuple(assessments)
+
+
+def _assess_delta_at(
+    *, deltas: Sequence[float], index: int, start_at: datetime, end_at: datetime,
+    cadence_window_size: int, min_cadence_samples: int, gap_factor: float,
+    min_jitter_allowance_seconds: float, max_cadence_variability: float,
+) -> TemporalIntervalAssessment:
+    """Evaluate exactly one interval with the same local evidence as the full analyzer.
+
+    Internal caller provides validated, ordered timestamps and positive config.
+    Rolling analysis uses this to avoid reclassifying eight neighbors per row.
+    """
+    delta_seconds = deltas[index]
+    if delta_seconds <= 0:
+        return _indeterminate_assessment(
+            start_at=start_at, end_at=end_at, delta_seconds=delta_seconds,
+        )
+
+    left_estimate = _estimate_cadence(
+        deltas[max(0, index - cadence_window_size):index],
+        min_cadence_samples=min_cadence_samples,
+        gap_factor=gap_factor,
+        min_jitter_allowance_seconds=min_jitter_allowance_seconds,
+        max_cadence_variability=max_cadence_variability,
+    )
+    right_estimate = _estimate_cadence(
+        deltas[index + 1:index + 1 + cadence_window_size],
+        min_cadence_samples=min_cadence_samples,
+        gap_factor=gap_factor,
+        min_jitter_allowance_seconds=min_jitter_allowance_seconds,
+        max_cadence_variability=max_cadence_variability,
+    )
+    return _assess_interval(
+        start_at=start_at, end_at=end_at, delta_seconds=delta_seconds,
+        left_estimate=left_estimate, right_estimate=right_estimate,
+    )
 
 
 def _estimate_cadence(

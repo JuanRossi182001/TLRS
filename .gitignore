@@ -9,3 +9,9 @@ __pycache__/
 !docs/specs/*.md
 docs
 
+# Keep the cross-repository QR identity specification versioned.
+!docs/
+docs/*
+!docs/specs/
+docs/specs/*
+!docs/specs/device-qr-identity.md

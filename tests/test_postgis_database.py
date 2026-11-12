@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import uuid4
 
 from sqlalchemy import func, select, text
 from geoalchemy2.elements import WKTElement
@@ -51,15 +52,16 @@ async def test_location_ingestion_persists_postgis_point_and_marks_device_online
     test_session_factory,
 ) -> None:
     received_at = datetime(2026, 10, 20, 12, 0, 0)
+    suffix = uuid4().hex
 
     async with test_session_factory() as session:
         async with session.begin():
-            client = Client(name="Pytest client", email="pytest@example.test")
+            client = Client(name="Pytest client", email=f"pytest-{suffix}@example.test")
             session.add(client)
             await session.flush()
 
             device = Device(
-                serial="PYTEST-DEVICE-001",
+                serial=f"PYTEST-DEVICE-{suffix}",
                 name="Pytest device",
                 type="COLLAR",
                 client_id=client.id_client,
@@ -97,15 +99,16 @@ async def test_location_ingestion_persists_postgis_point_and_marks_device_online
 async def test_location_transition_creates_geofence_event_and_downlinks(
     test_session_factory,
 ) -> None:
+    suffix = uuid4().hex
     async with test_session_factory() as session:
         async with session.begin():
-            client = Client(name="Fence test client", email="fence@example.test")
+            client = Client(name="Fence test client", email=f"fence-{suffix}@example.test")
             session.add(client)
             await session.flush()
 
             asset = Asset(
                 asset_type="CATTLE",
-                serial="PYTEST-COW-001",
+                serial=f"PYTEST-COW-{suffix}",
                 client_id=client.id_client,
                 status=AssetStatus.ACTIVE,
             )
@@ -113,7 +116,7 @@ async def test_location_transition_creates_geofence_event_and_downlinks(
             await session.flush()
 
             device = Device(
-                serial="PYTEST-CHIRPSTACK-001",
+                serial=f"PYTEST-CHIRPSTACK-{suffix}",
                 name="Pytest ChirpStack device",
                 type="COLLAR",
                 client_id=client.id_client,
@@ -121,7 +124,7 @@ async def test_location_transition_creates_geofence_event_and_downlinks(
                 active=True,
                 state=DeviceState.OFF,
                 communication_protocol=DeviceCommunicationProtocol.CHIRPSTACK,
-                chirpstack_dev_eui="0102030405060708",
+                chirpstack_dev_eui=suffix[:16],
                 chirpstack_application_id="pytest-app",
             )
             geofence = GeoFence(

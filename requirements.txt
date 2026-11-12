@@ -20,6 +20,7 @@ bcrypt==4.0.1
 psycopg2-binary==2.9.12
 pydantic==2.13.3
 pydantic_core==2.46.3
+pyproj==3.7.2
 PyJWT
 python-dotenv==1.2.2
 python-multipart

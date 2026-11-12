@@ -14,6 +14,7 @@ from src.routers import (
     client,
     device,
     geofence,
+    heatmap,
     rbac,
     realtime,
     user,
@@ -78,6 +79,7 @@ app.include_router(device.router)
 app.include_router(asset.router)
 app.include_router(asset_group.router)
 app.include_router(geofence.router)
+app.include_router(heatmap.router)
 app.include_router(auth.router)
 app.include_router(user.router)
 app.include_router(admin.router)

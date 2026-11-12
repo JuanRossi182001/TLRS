@@ -90,7 +90,8 @@ def migrated_test_database() -> Iterator[None]:
             connection.execute(
                 text(
                     "INSERT INTO roles (id_role, name, deleted) "
-                    "VALUES (1, 'pytest-default-role', 'N')"
+                    "VALUES (1, 'pytest-default-role', 'N') "
+                    "ON CONFLICT (id_role) DO NOTHING"
                 )
             )
             connection.execute(

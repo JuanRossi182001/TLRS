@@ -1,5 +1,5 @@
 from src.db.config.config import base
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime,Float
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Index, text
 from datetime import datetime
 from enum import Enum
 from geoalchemy2 import Geography
@@ -11,6 +11,15 @@ class Location(base):
     """
 
     __tablename__ = "locations"
+    __table_args__ = (
+        Index(
+            "ix_locations_analytics_device_observed",
+            "device_id",
+            text("COALESCE(device_timestamp, received_at)"),
+            "id_location",
+            postgresql_where=text("deleted = 'N'"),
+        ),
+    )
 
     id_location = Column(Integer, primary_key=True)
     device_id = Column(Integer, ForeignKey("devices.id_device"), nullable=False)

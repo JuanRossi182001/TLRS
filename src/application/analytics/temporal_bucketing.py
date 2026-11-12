@@ -71,7 +71,7 @@ def bucket_observed_time(
         current_start = clipped_start
 
         while current_start < clipped_end:
-            bucket_start = _floor_bucket_start(current_start, bucket_seconds)
+            bucket_start = floor_bucket_start(current_start, bucket_seconds)
             bucket_end = bucket_start + bucket_duration
             segment_end = min(bucket_end, clipped_end)
             segment_seconds = (segment_end - current_start).total_seconds()
@@ -123,7 +123,8 @@ def bucket_observed_time(
     )
 
 
-def _floor_bucket_start(timestamp: datetime, bucket_seconds: int) -> datetime:
+def floor_bucket_start(timestamp: datetime, bucket_seconds: int) -> datetime:
+    """Align a UTC-naive timestamp; callers validate timestamp and bucket size."""
     offset = timestamp - UTC_NAIVE_EPOCH
     offset_microseconds = (
         (offset.days * 86_400 + offset.seconds) * 1_000_000
