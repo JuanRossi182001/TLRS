@@ -8,9 +8,10 @@ from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
 from sqlalchemy import delete, or_, select, func, update
 
-from src.models.user import User, UserSession
+from src.models.user import Role, User, UserRoles, UserSession
 from src.models.client import Client
 from src.schemas.user import (
+    AdminUserInviteCreate,
     TokenData,
     UserCreate,
     UserUpdate,
@@ -24,6 +25,7 @@ from src.service.crud_base import CrudBase
 
 oauth_bearer = OAuth2PasswordBearer(tokenUrl='/user/auth/login')
 bcryptContext = CryptContext(schemes=['bcrypt'], deprecated ='auto')
+CLIENT_DEFAULT_ROLE_NAME = "cliente_completo"
 
 
 class RefreshTokenPair:
@@ -46,6 +48,22 @@ class RefreshSessionResult:
 
 class UserService(CrudBase[User, UserCreate, UserUpdate]):
     model = User
+
+    async def _assign_default_client_role(self, user: User) -> None:
+        role_result = await self.db.execute(
+            select(Role).where(
+                Role.name == CLIENT_DEFAULT_ROLE_NAME,
+                Role.deleted == "N",
+            )
+        )
+        role = role_result.scalar_one_or_none()
+        if role is None:
+            raise RuntimeError(
+                "The default client role is missing. Apply database migrations."
+            )
+
+        await self.db.flush()
+        self.db.add(UserRoles(user_id=user.id_user, role_id=role.id_role))
 
     async def get_active_user_by_id(self, user_id: int) -> User | None:
         result = await self.db.execute(
@@ -85,12 +103,52 @@ class UserService(CrudBase[User, UserCreate, UserUpdate]):
         _user = User(name=obj_in.name,
                      email=obj_in.email,
                      password=hashed_password,
+                     email_verification_required=True,
                      id_client=obj_in.id_client,
                      is_admin=obj_in.is_admin)
-        self.db.add(_user)
-        await self.db.commit()
-        await self.db.refresh(_user)
-        return _user
+        try:
+            self.db.add(_user)
+            if _user.id_client is not None and not _user.is_admin:
+                await self._assign_default_client_role(_user)
+            await self.db.commit()
+            await self.db.refresh(_user)
+            return _user
+        except Exception:
+            await self.db.rollback()
+            raise
+
+    async def create_invited_user(self, payload: AdminUserInviteCreate) -> User:
+        try:
+            client_result = await self.db.execute(
+                select(Client.id_client).where(
+                    Client.id_client == payload.id_client,
+                    Client.deleted == "N",
+                )
+            )
+            if client_result.scalar_one_or_none() is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Client not found.",
+                )
+
+            # The provisional password is random, never returned, and replaced on activation.
+            provisional_password = secrets.token_urlsafe(48)
+            user = User(
+                name=payload.name,
+                email=payload.email,
+                password=bcryptContext.hash(provisional_password),
+                email_verification_required=True,
+                id_client=payload.id_client,
+                is_admin=False,
+            )
+            self.db.add(user)
+            await self._assign_default_client_role(user)
+            await self.db.commit()
+            await self.db.refresh(user)
+            return user
+        except Exception:
+            await self.db.rollback()
+            raise
 
     async def auth_user(self, password: str, username: str) -> User: 
         result = await self.db.execute(select(User).filter(
@@ -105,6 +163,11 @@ class UserService(CrudBase[User, UserCreate, UserUpdate]):
         )
         if not bcryptContext.verify(password, _user.password):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Credentials")
+        if _user.email_verification_required and _user.email_verified_at is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Verify your email address before signing in.",
+            )
         return _user
 
     async def create_refresh_session(

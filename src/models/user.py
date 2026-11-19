@@ -14,6 +14,8 @@ class User(base):
     id_user = Column(Integer, primary_key=True)
     name = Column(String, nullable=False, unique=True)
     email = Column(String, nullable=False, unique=True)
+    email_verified_at = Column(DateTime, nullable=True)
+    email_verification_required = Column(Boolean, default=False, nullable=False)
     password = Column(String, nullable=False)
     deleted = Column(String(1), default="N", nullable=False)
     id_client = Column(Integer, ForeignKey("clients.id_client"), nullable=True)
@@ -43,6 +45,20 @@ class UserSession(base):
 
     user = relationship("User", back_populates="sessions")
     replaced_by_session = relationship("UserSession", remote_side=[id_session])
+
+
+class UserEmailToken(base):
+    __tablename__ = "user_email_tokens"
+
+    id_token = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id_user"), nullable=False, index=True)
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    purpose = Column(String(32), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    used_at = Column(DateTime, nullable=True)
+
+    user = relationship("User")
 
 
 class Role(base):

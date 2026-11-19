@@ -68,6 +68,10 @@ Edita `.env` con los valores de tu entorno. En particular, configura:
 - `CHIRPSTACK_API_*` para provisioning y downlinks.
 - `JWT_SECRET_KEY` y `CREDENTIAL_ENCRYPTION_KEY` con valores seguros.
 - `CORS_ALLOWED_ORIGINS` con los orígenes del frontend.
+- `APP_PUBLIC_URL` con la URL del frontend y `SMTP_*` con las credenciales de un
+  proveedor de correo transaccional para verificación de email y recuperación de
+  contraseña. Los tokens son de un solo uso y vencen según
+  `EMAIL_ACTION_TOKEN_EXPIRE_MINUTES`.
 
 `.env.example` contiene placeholders, no credenciales funcionales
 

@@ -126,6 +126,14 @@ class Settings(BaseSettings):
     user_session_cleanup_retention_days: int = 2
     user_session_cleanup_interval_hours: int = 6
     websocket_ticket_ttl_seconds: int = 60
+    app_public_url: str = "http://localhost:5173"
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
+    smtp_use_tls: bool = True
+    email_action_token_expire_minutes: int = 30
 
     @field_validator("refresh_token_cookie_secure", mode="before")
     @classmethod

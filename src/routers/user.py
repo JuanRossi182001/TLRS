@@ -5,10 +5,26 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from urllib.parse import quote
 
 from src.db.config.connection import get_db
-from src.schemas.user import TokenResponse, UserCreate, UserResponse
-from src.service.crud_user import UserService
+from src.schemas.user import (
+    AccountActionResponse,
+    AdminUserInviteCreate,
+    AdminUserInviteResponse,
+    EmailActionRequest,
+    EmailTokenRequest,
+    PasswordResetRequest,
+    TokenData,
+    TokenResponse,
+    UserResponse,
+)
+from src.service.account_email_service import (
+    ACCOUNT_ACTIVATION,
+    AccountEmailService,
+)
+from src.service.crud_user import UserService, get_current_user
+from src.service.email_service import send_email_action_link
 from src.settings import settings
 
 
@@ -52,23 +68,198 @@ def delete_refresh_token_cookie(response: Response) -> None:
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,
-    response_model=UserResponse,
+    response_model=AdminUserInviteResponse,
 )
 async def create_user(
-    payload: UserCreate,
+    payload: AdminUserInviteCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
 ):
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can create users.",
+        )
+
     service = UserService(db)
 
     try:
-        return await service.create(payload)
-
+        user = await service.create_invited_user(payload)
     except IntegrityError:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Username or email already exists.",
         )
+
+    try:
+        token = await AccountEmailService(db).create_token(
+            user,
+            ACCOUNT_ACTIVATION,
+        )
+        email_sent = False
+        if token:
+            link = (
+                f"{settings.app_public_url.rstrip('/')}/activate-account"
+                f"#token={quote(token)}"
+            )
+            email_sent = await send_email_action_link(
+                recipient=user.email,
+                action="activate",
+                link=link,
+            )
+        return {
+            "id_user": user.id_user,
+            "name": user.name,
+            "email": user.email,
+            "id_client": user.id_client,
+            "is_admin": user.is_admin,
+            "invitation_email_sent": email_sent,
+        }
+
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The account was created, but its verification email could not be prepared.",
+        )
+
+
+@router.post(
+    "/auth/account-activation/request",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=AccountActionResponse,
+)
+async def request_account_activation(
+    payload: EmailActionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await AccountEmailService(db).request_activation(payload.email)
+    if result:
+        recipient, token = result
+        link = (
+            f"{settings.app_public_url.rstrip('/')}/activate-account"
+            f"#token={quote(token)}"
+        )
+        await send_email_action_link(
+            recipient=recipient,
+            action="activate",
+            link=link,
+        )
+    return {"message": "Si la cuenta pendiente existe, enviaremos instrucciones al correo."}
+
+
+@router.post(
+    "/auth/account-activation/confirm",
+    status_code=status.HTTP_200_OK,
+    response_model=AccountActionResponse,
+)
+async def confirm_account_activation(
+    payload: PasswordResetRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        await AccountEmailService(db).activate_account(
+            payload.token,
+            payload.new_password,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    return {"message": "Cuenta activada. Ya puedes iniciar sesión."}
+
+
+@router.post(
+    "/auth/email-verification/request",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=AccountActionResponse,
+)
+async def request_email_verification(
+    payload: EmailActionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await AccountEmailService(db).request_verification(payload.email)
+    if result:
+        recipient, token = result
+        link = (
+            f"{settings.app_public_url.rstrip('/')}/verify-email"
+            f"#token={quote(token)}"
+        )
+        await send_email_action_link(
+            recipient=recipient,
+            action="verify",
+            link=link,
+        )
+    return {"message": "Si la cuenta existe, enviaremos instrucciones al correo."}
+
+
+@router.post(
+    "/auth/email-verification/confirm",
+    status_code=status.HTTP_200_OK,
+    response_model=AccountActionResponse,
+)
+async def confirm_email_verification(
+    payload: EmailTokenRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        await AccountEmailService(db).confirm_email(payload.token)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    return {"message": "Correo verificado correctamente."}
+
+
+@router.post(
+    "/auth/password-reset/request",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=AccountActionResponse,
+)
+async def request_password_reset(
+    payload: EmailActionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await AccountEmailService(db).request_password_reset(payload.email)
+    if result:
+        recipient, token = result
+        link = (
+            f"{settings.app_public_url.rstrip('/')}/reset-password"
+            f"#token={quote(token)}"
+        )
+        await send_email_action_link(
+            recipient=recipient,
+            action="reset",
+            link=link,
+        )
+    return {
+        "message": "Si la cuenta existe, enviaremos instrucciones al correo."
+    }
+
+
+@router.post(
+    "/auth/password-reset/confirm",
+    status_code=status.HTTP_200_OK,
+    response_model=AccountActionResponse,
+)
+async def confirm_password_reset(
+    payload: PasswordResetRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        await AccountEmailService(db).reset_password(
+            payload.token,
+            payload.new_password,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    return {"message": "Contraseña actualizada. Inicia sesión nuevamente."}
 
 
 @router.post(

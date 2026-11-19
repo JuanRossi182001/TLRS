@@ -23,7 +23,7 @@ from src.models.geofence import (
 )
 from src.models.location import Location
 from src.models.service import Service, ServiceRoles
-from src.models.user import Role, User, UserRoles, UserSession
+from src.models.user import Role, User, UserEmailToken, UserRoles, UserSession
 
 __all__ = [
     "Asset",
@@ -50,6 +50,7 @@ __all__ = [
     "Service",
     "ServiceRoles",
     "User",
+    "UserEmailToken",
     "UserRoles",
     "UserSession",
 ]
