@@ -30,6 +30,8 @@ class GeofenceEvaluationResult:
 
 
 class GeoFenceEvaluationService:
+    STATE_BATCH_SIZE = 500
+
     def __init__(
         self,
         db: AsyncSession,
@@ -42,41 +44,39 @@ class GeoFenceEvaluationService:
 
     async def evaluate_location(
         self,
-        device_id: int,
-        location_id: int,
+        device: Device,
+        location: Location,
     ) -> list[GeofenceEvaluationResult]:
-        device = await self._get_device(device_id)
-        if device is None or device.asset_id is None:
-            return []
-
-        location = await self._get_location(location_id)
-        if location is None:
+        if device.asset_id is None:
             return []
 
         rows = await self._get_assigned_geofence_spatial_results(
             asset_id=device.asset_id,
-            location_id=location_id,
+            location_id=location.id_location,
         )
+        if not rows:
+            return []
 
-        results: list[GeofenceEvaluationResult] = []
-
+        state_inputs = []
         for row in rows:
-            new_status = self._resolve_status(
+            status = self._resolve_status(
                 inside=row.inside,
                 distance_to_boundary_meters=row.distance_to_boundary_meters,
                 accuracy=location.accuracy,
             )
+            state_inputs.append((row.fence_id, status, row.distance_to_boundary_meters))
 
-            state, previous_status = await self._get_or_create_asset_state(
-                fence_id=row.fence_id,
-                asset_id=device.asset_id,
-                device_id=device.id_device,
-                location_id=location.id_location,
-                current_status=new_status,
-                distance_to_boundary_meters=row.distance_to_boundary_meters,
-                accuracy=location.accuracy,
-            )
+        states = await self._get_or_create_asset_states(
+            state_inputs=state_inputs,
+            asset_id=device.asset_id,
+            device_id=device.id_device,
+            location_id=location.id_location,
+            accuracy=location.accuracy,
+        )
 
+        transitions = []
+        for row, (_, new_status, _) in zip(rows, state_inputs):
+            state, previous_status = states[row.fence_id]
             event_type = self._resolve_event_type_from_transition(
                 previous_status=previous_status,
                 new_status=new_status,
@@ -91,6 +91,10 @@ class GeoFenceEvaluationService:
                 accuracy=location.accuracy,
             )
 
+            transitions.append((row, new_status, event_type))
+
+        results: list[GeofenceEvaluationResult] = []
+        for row, new_status, event_type in transitions:
             event_created = event_type is not None
             if event_created:
                 event = self._create_event(
@@ -121,27 +125,13 @@ class GeoFenceEvaluationService:
 
         return results
 
-    async def _get_device(self, device_id: int) -> Device | None:
-        stmt = select(Device).where(Device.id_device == device_id)
-        result = await self.db.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def _get_location(self, location_id: int) -> Location | None:
-        stmt = select(Location).where(Location.id_location == location_id)
-        result = await self.db.execute(stmt)
-        return result.scalar_one_or_none()
-
     async def _get_assigned_geofence_spatial_results(
         self,
         asset_id: int,
         location_id: int,
     ):
         membership_service = GeofenceMembershipService(self.db)
-        effective_geofence_ids = await membership_service.get_effective_geofence_ids_for_asset(
-            asset_id
-        )
-        if not effective_geofence_ids:
-            return []
+        effective_memberships = membership_service.effective_memberships_subquery()
 
         location_point_geometry = cast(Location.point, Geometry(geometry_type="POINT", srid=4326))
 
@@ -162,70 +152,92 @@ class GeoFenceEvaluationService:
                     boundary_geography,
                 ).label("distance_to_boundary_meters"),
             )
+            .select_from(GeoFence)
+            .join(
+                effective_memberships,
+                (effective_memberships.c.fence_id == GeoFence.id_geofence)
+                & (effective_memberships.c.asset_id == asset_id),
+            )
             .join(
                 Location,
                 Location.id_location == location_id,
             )
             .where(
-                GeoFence.id_geofence.in_(effective_geofence_ids),
                 GeoFence.active.is_(True),
                 GeoFence.deleted == "N",
             )
+            .order_by(GeoFence.id_geofence)
         )
 
         result = await self.db.execute(stmt)
         return result.all()
 
-    async def _get_or_create_asset_state(
+    async def _get_or_create_asset_states(
         self,
-        fence_id: int,
+        *,
+        state_inputs: list[tuple[int, GeoFenceStatus, float | None]],
         asset_id: int,
         device_id: int,
         location_id: int,
-        current_status: GeoFenceStatus,
-        distance_to_boundary_meters: float | None,
         accuracy: float | None,
-    ) -> tuple[GeoFenceAssetState, GeoFenceStatus | None]:
+    ) -> dict[int, tuple[GeoFenceAssetState, GeoFenceStatus | None]]:
+        if not state_inputs:
+            return {}
+
         now = datetime.utcnow()
+        states: dict[int, tuple[GeoFenceAssetState, GeoFenceStatus | None]] = {}
+        ordered_inputs = sorted(state_inputs, key=lambda item: item[0])
 
-        insert_stmt = (
-            insert(GeoFenceAssetState)
-            .values(
-                fence_id=fence_id,
-                asset_id=asset_id,
-                device_id=device_id,
-                current_status=current_status,
-                last_location_id=location_id,
-                last_distance_to_boundary_meters=distance_to_boundary_meters,
-                last_accuracy=accuracy,
-                first_detected_at=now,
-                last_evaluated_at=now,
-                created_at=now,
-                updated_at=now,
+        for offset in range(0, len(ordered_inputs), self.STATE_BATCH_SIZE):
+            batch = ordered_inputs[offset : offset + self.STATE_BATCH_SIZE]
+            fence_ids = [item[0] for item in batch]
+            insert_values = [
+                {
+                    "fence_id": fence_id,
+                    "asset_id": asset_id,
+                    "device_id": device_id,
+                    "current_status": current_status,
+                    "last_location_id": location_id,
+                    "last_distance_to_boundary_meters": distance,
+                    "last_accuracy": accuracy,
+                    "first_detected_at": now,
+                    "last_evaluated_at": now,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                for fence_id, current_status, distance in batch
+            ]
+            insert_stmt = (
+                insert(GeoFenceAssetState)
+                .values(insert_values)
+                .on_conflict_do_nothing(
+                    constraint="uq_geofence_asset_state_fence_asset",
+                )
+                .returning(GeoFenceAssetState.fence_id)
             )
-            .on_conflict_do_nothing(
-                constraint="uq_geofence_asset_state_fence_asset",
+            inserted_fence_ids = set(
+                (await self.db.execute(insert_stmt)).scalars().all()
             )
-            .returning(GeoFenceAssetState.id_state)
-        )
-        insert_result = await self.db.execute(insert_stmt)
-        inserted_state_id = insert_result.scalar_one_or_none()
 
-        stmt = (
-            select(GeoFenceAssetState)
-            .where(
-                GeoFenceAssetState.fence_id == fence_id,
-                GeoFenceAssetState.asset_id == asset_id,
+            stmt = (
+                select(GeoFenceAssetState)
+                .where(
+                    GeoFenceAssetState.asset_id == asset_id,
+                    GeoFenceAssetState.fence_id.in_(fence_ids),
+                )
+                .order_by(GeoFenceAssetState.fence_id)
+                .with_for_update()
             )
-            .with_for_update()
-        )
-        result = await self.db.execute(stmt)
-        state = result.scalar_one()
+            result = await self.db.execute(stmt)
+            for state in result.scalars().all():
+                previous_status = (
+                    None
+                    if state.fence_id in inserted_fence_ids
+                    else state.current_status
+                )
+                states[state.fence_id] = (state, previous_status)
 
-        if inserted_state_id is not None:
-            return state, None
-
-        return state, state.current_status
+        return states
 
     def _resolve_status(
         self,

@@ -30,3 +30,7 @@ async def test_latest_locations_excludes_devices_without_assigned_asset() -> Non
     sql = str(session.statement.compile()).lower()
     assert locations == []
     assert "devices.asset_id is not null" in sql
+    assert "lateral" in sql
+    assert "row_number()" not in sql
+    assert "devices.client_id =" in sql
+    assert "locations.received_at desc" in sql

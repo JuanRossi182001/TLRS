@@ -1,6 +1,6 @@
 import json
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, true
 from src.models.device import Device, DeviceCommunicationProtocol, DeviceState
 from src.models.client import Client
 from src.models.asset import Asset, AssetStatus
@@ -185,7 +185,6 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
         latest_location = (
             select(
                 Location.id_location.label("id_location"),
-                Location.device_id.label("device_id"),
                 Location.latitude.label("latitude"),
                 Location.longitude.label("longitude"),
                 Location.altitude.label("altitude"),
@@ -193,16 +192,14 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
                 func.ST_AsGeoJSON(Location.point).label("point"),
                 Location.device_timestamp.label("device_timestamp"),
                 Location.received_at.label("received_at"),
-                func.row_number()
-                .over(
-                    partition_by=Location.device_id,
-                    order_by=Location.received_at.desc(),
-                )
-                .label("row_number"),
             )
-            .where(Location.deleted == "N",
-                   Location.device_id != None)
-            .subquery()
+            .where(
+                Location.device_id == Device.id_device,
+                Location.deleted == "N",
+            )
+            .order_by(Location.received_at.desc(), Location.id_location.desc())
+            .limit(1)
+            .lateral("latest_location")
         )
 
         stmt = (
@@ -228,19 +225,16 @@ class DeviceService(CrudBase[Device, DeviceCreate, DeviceUpdate]):
                 latest_location.c.device_timestamp,
                 latest_location.c.received_at,
             )
-            .outerjoin(
-                latest_location,
-                (latest_location.c.device_id == Device.id_device)
-                & (latest_location.c.row_number == 1),
-            )
+            .select_from(Device)
+            .join(latest_location, true())
             .outerjoin(Asset, Device.asset_id == Asset.id_asset)
             .where(
                 Device.client_id == client_id,
                 Device.deleted == "N",
                 Device.asset_id.is_not(None),
-                latest_location.c.latitude != None,
-                latest_location.c.longitude != None,
-                latest_location.c.point != None
+                latest_location.c.latitude.is_not(None),
+                latest_location.c.longitude.is_not(None),
+                latest_location.c.point.is_not(None),
             )
         )
 

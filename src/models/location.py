@@ -19,6 +19,13 @@ class Location(base):
             "id_location",
             postgresql_where=text("deleted = 'N'"),
         ),
+        Index(
+            "ix_locations_device_latest_received",
+            "device_id",
+            text("received_at DESC"),
+            text("id_location DESC"),
+            postgresql_where=text("deleted = 'N'"),
+        ),
     )
 
     id_location = Column(Integer, primary_key=True)

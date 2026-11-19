@@ -58,8 +58,8 @@ class LocationIngestionService:
 
         evaluation_service = GeoFenceEvaluationService(self.db)
         geofence_states = await evaluation_service.evaluate_location(
-            device.id_device,
-            location.id_location,
+            device,
+            location,
         )
 
         return location, geofence_states
