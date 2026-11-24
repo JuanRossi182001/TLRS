@@ -22,6 +22,10 @@ from src.models.geofence import (
     GeoFenceStatus,
 )
 from src.models.location import Location
+from src.models.map_reference_point import (
+    MapReferencePoint,
+    MapReferencePointCategory,
+)
 from src.models.service import Service, ServiceRoles
 from src.models.user import Role, User, UserEmailToken, UserRoles, UserSession
 
@@ -46,6 +50,8 @@ __all__ = [
     "GeoFenceEvent",
     "GeoFenceStatus",
     "Location",
+    "MapReferencePoint",
+    "MapReferencePointCategory",
     "Role",
     "Service",
     "ServiceRoles",

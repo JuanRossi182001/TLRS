@@ -27,3 +27,7 @@ class Client(base):
     devices = relationship("Device", back_populates="client")
     assets = relationship("Asset", back_populates="client")
     asset_groups = relationship("AssetGroup", back_populates="client")
+    map_reference_points = relationship(
+        "MapReferencePoint",
+        back_populates="client",
+    )
